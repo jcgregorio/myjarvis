@@ -3,15 +3,28 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "list":
+			runList()
+			return
+		case "tools":
+			runTools()
+			return
+		}
+	}
+
 	dryRun := flag.Bool("dry-run", false, "Print tool calls without executing them against Home Assistant")
 	flag.Parse()
 
@@ -27,7 +40,25 @@ func main() {
 	fmt.Printf("Found %d controllable entities.\n", len(entities))
 
 	llm := NewLLMClient(cfg.OllamaURL, cfg.Model)
+
+	var toolsMu sync.RWMutex
 	tools := BuildTools(entities)
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			updated, err := ha.FetchControllableEntities(context.Background())
+			if err != nil {
+				log.Printf("entity refresh failed: %v", err)
+				continue
+			}
+			toolsMu.Lock()
+			tools = BuildTools(updated)
+			toolsMu.Unlock()
+			log.Printf("refreshed %d entities", len(updated))
+		}
+	}()
 
 	if *dryRun {
 		fmt.Println("(dry-run mode: tool calls will be printed but not executed)")
@@ -45,8 +76,12 @@ func main() {
 			continue
 		}
 
+		toolsMu.RLock()
+		currentTools := tools
+		toolsMu.RUnlock()
+
 		start := time.Now()
-		toolCalls, reply, err := llm.Chat(context.Background(), input, tools)
+		toolCalls, reply, err := llm.Chat(context.Background(), input, currentTools)
 		elapsed := time.Since(start)
 		if err != nil {
 			fmt.Printf("LLM error: %v\n", err)
@@ -72,6 +107,54 @@ func main() {
 			}
 		}
 	}
+}
+
+func runTools() {
+	cfg := configFromEnv()
+	ha := NewHAClient(cfg.HAURL, cfg.HAToken)
+
+	entities, err := ha.FetchControllableEntities(context.Background())
+	if err != nil {
+		log.Fatalf("Failed to fetch HA entities: %v", err)
+	}
+
+	tools := BuildTools(entities)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(tools); err != nil {
+		log.Fatalf("Failed to encode tools: %v", err)
+	}
+}
+
+func runList() {
+	cfg := configFromEnv()
+	ha := NewHAClient(cfg.HAURL, cfg.HAToken)
+
+	entities, err := ha.FetchControllableEntities(context.Background())
+	if err != nil {
+		log.Fatalf("Failed to fetch HA entities: %v", err)
+	}
+
+	// Group by domain
+	byDomain := make(map[string][]HAEntity)
+	var domains []string
+	for _, e := range entities {
+		domain, _, _ := strings.Cut(e.EntityID, ".")
+		if _, seen := byDomain[domain]; !seen {
+			domains = append(domains, domain)
+		}
+		byDomain[domain] = append(byDomain[domain], e)
+	}
+
+	fmt.Printf("%-40s  %-20s  %s\n", "ENTITY ID", "FRIENDLY NAME", "STATE")
+	fmt.Println(strings.Repeat("-", 80))
+	for _, domain := range domains {
+		for _, e := range byDomain[domain] {
+			name := e.FriendlyName()
+			fmt.Printf("%-40s  %-20s  %s\n", e.EntityID, name, e.State)
+		}
+	}
+	fmt.Printf("\n%d controllable entities.\n", len(entities))
 }
 
 type Config struct {

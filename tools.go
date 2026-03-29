@@ -9,9 +9,9 @@ import (
 // The entity_id enum is populated dynamically so the LLM can only reference
 // entities that actually exist in the HA instance.
 func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
-	entityIDs := make([]any, len(entities))
+	entityNames := make([]any, len(entities))
 	for i, e := range entities {
-		entityIDs[i] = e.EntityID
+		entityNames[i] = e.FriendlyName()
 	}
 
 	return []openai.ChatCompletionToolParam{
@@ -22,17 +22,17 @@ func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
 				Parameters: shared.FunctionParameters{
 					"type": "object",
 					"properties": map[string]any{
-						"entity_id": map[string]any{
+						"entity": map[string]any{
 							"type":        "string",
-							"description": "The entity to control",
-							"enum":        entityIDs,
+							"description": "The name of the entity to control",
+							"enum":        entityNames,
 						},
 						"state": map[string]any{
 							"type": "string",
 							"enum": []string{"on", "off"},
 						},
 					},
-					"required": []string{"entity_id", "state"},
+					"required": []string{"entity", "state"},
 				},
 			},
 		},
@@ -58,36 +58,21 @@ func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
 		},
 		{
 			Function: shared.FunctionDefinitionParam{
-				Name:        "add_shopping_item",
-				Description: openai.String("Add an item to the Home Assistant shopping list"),
+				Name:        "add_to_list",
+				Description: openai.String(`Add an item to a list. Use list "Shopping List" for groceries (default if not specified). Use the to-do list name for other lists.`),
 				Parameters: shared.FunctionParameters{
 					"type": "object",
 					"properties": map[string]any{
 						"item": map[string]any{
-							"type": "string",
+							"type":        "string",
+							"description": "The item or task to add",
+						},
+						"list": map[string]any{
+							"type":        "string",
+							"description": `The list to add to. Defaults to "Shopping List" if not specified.`,
 						},
 					},
 					"required": []string{"item"},
-				},
-			},
-		},
-		{
-			Function: shared.FunctionDefinitionParam{
-				Name:        "add_todo",
-				Description: openai.String("Add a task to a Home Assistant to-do list"),
-				Parameters: shared.FunctionParameters{
-					"type": "object",
-					"properties": map[string]any{
-						"list": map[string]any{
-							"type":        "string",
-							"description": "Name of the to-do list",
-						},
-						"task": map[string]any{
-							"type":        "string",
-							"description": "The task to add",
-						},
-					},
-					"required": []string{"list", "task"},
 				},
 			},
 		},

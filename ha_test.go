@@ -21,6 +21,15 @@ var fakeEntities = []HAEntity{
 	{EntityID: "media_player.tv", State: "idle"},
 }
 
+// newFakeHAClientWithNames returns an HAClient pre-loaded with a name→ID map.
+func newFakeHAClientWithNames(srv *httptest.Server) *HAClient {
+	ha := NewHAClient(srv.URL, "fake-token")
+	for _, e := range fakeEntities {
+		ha.nameToID[e.FriendlyName()] = e.EntityID
+	}
+	return ha
+}
+
 func newFakeHAServer(t *testing.T) (*httptest.Server, *HAClient) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +87,8 @@ func TestFetchControllableEntities_filters(t *testing.T) {
 }
 
 func TestExecuteToolCall_setStateOff(t *testing.T) {
-	srv, ha := newFakeHAServer(t)
+	srv, _ := newFakeHAServer(t)
+	ha := newFakeHAClientWithNames(srv)
 	var gotPath string
 	var gotBody map[string]any
 	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +100,7 @@ func TestExecuteToolCall_setStateOff(t *testing.T) {
 
 	err := ha.ExecuteToolCall(context.Background(), ToolCall{
 		Name: "set_state",
-		Args: `{"entity_id":"light.kitchen","state":"off"}`,
+		Args: `{"entity":"light.kitchen","state":"off"}`,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +114,8 @@ func TestExecuteToolCall_setStateOff(t *testing.T) {
 }
 
 func TestExecuteToolCall_setStateOn(t *testing.T) {
-	srv, ha := newFakeHAServer(t)
+	srv, _ := newFakeHAServer(t)
+	ha := newFakeHAClientWithNames(srv)
 	var gotPath string
 	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -114,7 +125,7 @@ func TestExecuteToolCall_setStateOn(t *testing.T) {
 
 	err := ha.ExecuteToolCall(context.Background(), ToolCall{
 		Name: "set_state",
-		Args: `{"entity_id":"switch.fan","state":"on"}`,
+		Args: `{"entity":"switch.fan","state":"on"}`,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -124,24 +135,59 @@ func TestExecuteToolCall_setStateOn(t *testing.T) {
 	}
 }
 
-func TestExecuteToolCall_addShoppingItem(t *testing.T) {
+func TestExecuteToolCall_addToListShopping(t *testing.T) {
 	srv, ha := newFakeHAServer(t)
+	var gotPath string
 	var gotBody map[string]any
 	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("[]"))
+	})
+
+	// Default list (no list field) → shopping_list.add_item
+	err := ha.ExecuteToolCall(context.Background(), ToolCall{
+		Name: "add_to_list",
+		Args: `{"item":"milk"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/services/shopping_list/add_item" {
+		t.Errorf("path = %q, want /api/services/shopping_list/add_item", gotPath)
+	}
+	if gotBody["name"] != "milk" {
+		t.Errorf("name = %v, want milk", gotBody["name"])
+	}
+}
+
+func TestExecuteToolCall_addToListTodo(t *testing.T) {
+	srv, ha := newFakeHAServer(t)
+	var gotPath string
+	var gotBody map[string]any
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
 		json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("[]"))
 	})
 
 	err := ha.ExecuteToolCall(context.Background(), ToolCall{
-		Name: "add_shopping_item",
-		Args: `{"item":"milk"}`,
+		Name: "add_to_list",
+		Args: `{"list":"Chores","item":"vacuum living room"}`,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotBody["name"] != "milk" {
-		t.Errorf("name = %v, want milk", gotBody["name"])
+	if gotPath != "/api/services/todo/add_item" {
+		t.Errorf("path = %q, want /api/services/todo/add_item", gotPath)
+	}
+	if gotBody["entity_id"] != "todo.chores" {
+		t.Errorf("entity_id = %v, want todo.chores", gotBody["entity_id"])
+	}
+	if gotBody["item"] != "vacuum living room" {
+		t.Errorf("item = %v, want 'vacuum living room'", gotBody["item"])
 	}
 }
 
@@ -170,10 +216,11 @@ func TestExecuteToolCall_setTimer(t *testing.T) {
 }
 
 func TestExecuteToolCall_invalidState(t *testing.T) {
-	_, ha := newFakeHAServer(t)
+	srv, _ := newFakeHAServer(t)
+	ha := newFakeHAClientWithNames(srv)
 	err := ha.ExecuteToolCall(context.Background(), ToolCall{
 		Name: "set_state",
-		Args: `{"entity_id":"light.kitchen","state":"maybe"}`,
+		Args: `{"entity":"light.kitchen","state":"maybe"}`,
 	})
 	if err == nil {
 		t.Error("expected error for invalid state, got nil")

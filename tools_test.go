@@ -7,7 +7,7 @@ import (
 
 func TestBuildTools_names(t *testing.T) {
 	tools := BuildTools(nil)
-	want := []string{"set_state", "set_timer", "add_shopping_item", "add_todo"}
+	want := []string{"set_state", "set_timer", "add_to_list"}
 	if len(tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(tools), len(want))
 	}
@@ -38,7 +38,7 @@ func TestBuildTools_entityIDEnum(t *testing.T) {
 	}
 
 	props := schema["properties"].(map[string]any)
-	entityProp := props["entity_id"].(map[string]any)
+	entityProp := props["entity"].(map[string]any)
 	enum := entityProp["enum"].([]any)
 
 	if len(enum) != 2 {
@@ -60,7 +60,7 @@ func TestBuildTools_emptyEntities(t *testing.T) {
 	var schema map[string]any
 	json.Unmarshal(raw, &schema)
 	props := schema["properties"].(map[string]any)
-	entityProp := props["entity_id"].(map[string]any)
+	entityProp := props["entity"].(map[string]any)
 	enum := entityProp["enum"].([]any)
 	if len(enum) != 0 {
 		t.Errorf("expected empty enum, got %v", enum)

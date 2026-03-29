@@ -7,20 +7,24 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 type HAClient struct {
-	baseURL string
-	token   string
-	http    *http.Client
+	baseURL  string
+	token    string
+	http     *http.Client
+	mu       sync.RWMutex
+	nameToID map[string]string // friendly name → entity_id
 }
 
 func NewHAClient(baseURL, token string) *HAClient {
 	return &HAClient{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		token:   token,
-		http:    &http.Client{Timeout: 10 * time.Second},
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		token:    token,
+		http:     &http.Client{Timeout: 10 * time.Second},
+		nameToID: make(map[string]string),
 	}
 }
 
@@ -74,12 +78,19 @@ func (h *HAClient) FetchControllableEntities(ctx context.Context) ([]HAEntity, e
 	}
 
 	var result []HAEntity
+	newNames := make(map[string]string)
 	for _, e := range all {
 		domain, _, ok := strings.Cut(e.EntityID, ".")
 		if ok && controllableDomains[domain] {
 			result = append(result, e)
+			newNames[e.FriendlyName()] = e.EntityID
 		}
 	}
+
+	h.mu.Lock()
+	h.nameToID = newNames
+	h.mu.Unlock()
+
 	return result, nil
 }
 
@@ -95,10 +106,8 @@ func (h *HAClient) ExecuteToolCall(ctx context.Context, tc ToolCall) error {
 		return h.executeSetState(ctx, tc.Args)
 	case "set_timer":
 		return h.executeSetTimer(ctx, tc.Args)
-	case "add_shopping_item":
-		return h.executeAddShoppingItem(ctx, tc.Args)
-	case "add_todo":
-		return h.executeAddTodo(ctx, tc.Args)
+	case "add_to_list":
+		return h.executeAddToList(ctx, tc.Args)
 	default:
 		return fmt.Errorf("unknown tool: %s", tc.Name)
 	}
@@ -106,8 +115,8 @@ func (h *HAClient) ExecuteToolCall(ctx context.Context, tc ToolCall) error {
 
 func (h *HAClient) executeSetState(ctx context.Context, args string) error {
 	var p struct {
-		EntityID string `json:"entity_id"`
-		State    string `json:"state"`
+		Entity string `json:"entity"`
+		State  string `json:"state"`
 	}
 	if err := json.Unmarshal([]byte(args), &p); err != nil {
 		return fmt.Errorf("parse args: %w", err)
@@ -115,8 +124,14 @@ func (h *HAClient) executeSetState(ctx context.Context, args string) error {
 	if p.State != "on" && p.State != "off" {
 		return fmt.Errorf("invalid state %q: must be on or off", p.State)
 	}
-	domain, _, _ := strings.Cut(p.EntityID, ".")
-	return h.callService(ctx, domain, "turn_"+p.State, map[string]any{"entity_id": p.EntityID})
+	h.mu.RLock()
+	entityID, ok := h.nameToID[p.Entity]
+	h.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("unknown entity %q", p.Entity)
+	}
+	domain, _, _ := strings.Cut(entityID, ".")
+	return h.callService(ctx, domain, "turn_"+p.State, map[string]any{"entity_id": entityID})
 }
 
 func (h *HAClient) executeSetTimer(ctx context.Context, args string) error {
@@ -136,27 +151,23 @@ func (h *HAClient) executeSetTimer(ctx context.Context, args string) error {
 	})
 }
 
-func (h *HAClient) executeAddShoppingItem(ctx context.Context, args string) error {
+func (h *HAClient) executeAddToList(ctx context.Context, args string) error {
 	var p struct {
+		List string `json:"list"`
 		Item string `json:"item"`
 	}
 	if err := json.Unmarshal([]byte(args), &p); err != nil {
 		return fmt.Errorf("parse args: %w", err)
 	}
-	return h.callService(ctx, "shopping_list", "add_item", map[string]any{"name": p.Item})
-}
-
-func (h *HAClient) executeAddTodo(ctx context.Context, args string) error {
-	var p struct {
-		List string `json:"list"`
-		Task string `json:"task"`
+	if p.List == "" {
+		p.List = "Shopping List"
 	}
-	if err := json.Unmarshal([]byte(args), &p); err != nil {
-		return fmt.Errorf("parse args: %w", err)
+	if p.List == "Shopping List" {
+		return h.callService(ctx, "shopping_list", "add_item", map[string]any{"name": p.Item})
 	}
 	return h.callService(ctx, "todo", "add_item", map[string]any{
 		"entity_id": "todo." + sanitizeName(p.List),
-		"item":      p.Task,
+		"item":      p.Item,
 	})
 }
 
