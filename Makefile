@@ -3,22 +3,24 @@ HA_URL    ?= http://homeassistant.local:8123
 HA_TOKEN  ?= $(error HA_TOKEN is required — export HA_TOKEN=<your-long-lived-access-token>)
 OLLAMA_URL ?= http://localhost:11434/v1
 
-.PHONY: run dry-run list tools ollama test build
+GOBIN := $(shell go env GOPATH)/bin
 
-build:
-	go build -o jarvis .
+.PHONY: run dry-run list tools ollama test install
 
-run: build
-	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) ./jarvis
+install:
+	go install .
 
-dry-run: build
-	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) ./jarvis -dry-run
+run: install
+	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) $(GOBIN)/myjarvis
 
-list: build
-	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) ./jarvis list
+dry-run: install
+	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) $(GOBIN)/myjarvis -dry-run
 
-tools: build
-	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) ./jarvis tools
+list: install
+	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) $(GOBIN)/myjarvis list
+
+tools: install
+	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) $(GOBIN)/myjarvis tools
 
 ollama:
 	docker compose -f /home/jcgregorio/jcgregorio/homeassistant/docker-compose.yaml up -d ollama

@@ -83,7 +83,7 @@ func (h *HAClient) FetchControllableEntities(ctx context.Context) ([]HAEntity, e
 		domain, _, ok := strings.Cut(e.EntityID, ".")
 		if ok && controllableDomains[domain] {
 			result = append(result, e)
-			newNames[e.FriendlyName()] = e.EntityID
+			newNames[strings.ToLower(e.FriendlyName())] = e.EntityID
 		}
 	}
 
@@ -125,7 +125,7 @@ func (h *HAClient) executeSetState(ctx context.Context, args string) error {
 		return fmt.Errorf("invalid state %q: must be on or off", p.State)
 	}
 	h.mu.RLock()
-	entityID, ok := h.nameToID[p.Entity]
+	entityID, ok := h.nameToID[strings.ToLower(p.Entity)]
 	h.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("unknown entity %q", p.Entity)

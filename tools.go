@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/shared"
 )
@@ -11,7 +13,7 @@ import (
 func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
 	entityNames := make([]any, len(entities))
 	for i, e := range entities {
-		entityNames[i] = e.FriendlyName()
+		entityNames[i] = strings.ToLower(e.FriendlyName())
 	}
 
 	return []openai.ChatCompletionToolParam{
