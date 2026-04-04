@@ -1,0 +1,490 @@
+# ESPHome firmware for Seeed Studio / HA Voice Preview Edition
+# Hardware: ESP32-S3, 16MB flash, 8MB octal PSRAM, XMOS XU316 DSP,
+#           12x WS2812 LED ring, dual I2S mic, TI AIC3204 DAC, rotary encoder
+#
+# Pipeline:
+#   Mic → XMOS XU316 (AEC/noise removal) → ESP32-S3
+#     → microWakeWord (hey_jarvis, on-chip TFLite, no audio leaves device)
+#     → on wake: stream raw PCM to MQTT → myjarvis → faster-whisper STT → LLM
+#   myjarvis → HTTP audio URL → MQTT → media_player.play_media → AIC3204 DAC → speaker
+#
+# To use: copy to a secrets.yaml-sibling, set substitutions below, then:
+#   esphome run living-room-voice.yaml
+
+substitutions:
+  device_name: living-room-voice       # used as MQTT topic prefix: jarvis/<device_name>/...
+  friendly_name: "Living Room Voice"
+  mqtt_broker: "192.168.1.x"           # replace with Docker host IP
+
+# ---------------------------------------------------------------------------
+# Core
+# ---------------------------------------------------------------------------
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.3.0
+  on_boot:
+    priority: 375
+    then:
+      - switch.turn_on: internal_speaker_amp
+      - micro_wake_word.start:
+
+esp32:
+  board: esp32-s3-devkitc-1
+  cpu_frequency: 240MHz
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      # 64KB data cache for better audio/PSRAM performance
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      # Load code/rodata into PSRAM — speeds up mWW inference considerably
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+      CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+      CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+  level: INFO
+  logs:
+    sensor: WARN
+
+ota:
+  - platform: esphome
+
+# ---------------------------------------------------------------------------
+# Hardware buses
+# ---------------------------------------------------------------------------
+psram:
+  mode: octal
+  speed: 80MHz
+  ignore_not_found: false
+
+i2c:
+  - id: internal_i2c
+    sda: GPIO5
+    scl: GPIO6
+    frequency: 400kHz
+
+i2s_audio:
+  # Output: → AIC3204 DAC → speaker (LRCLK=GPIO7, BCLK=GPIO8, DOUT=GPIO10)
+  - id: i2s_output
+    i2s_lrclk_pin:
+      number: GPIO7
+    i2s_bclk_pin:
+      number: GPIO8
+  # Input: XMOS → ESP32-S3 (LRCLK=GPIO14, BCLK=GPIO13, DIN=GPIO15)
+  - id: i2s_input
+    i2s_lrclk_pin:
+      number: GPIO14
+    i2s_bclk_pin:
+      number: GPIO13
+
+# ---------------------------------------------------------------------------
+# MQTT
+# ---------------------------------------------------------------------------
+mqtt:
+  id: mqtt_client
+  broker: ${mqtt_broker}
+  port: 1883
+  client_id: ${device_name}
+  birth_message:
+    topic: jarvis/${device_name}/status
+    payload: online
+  will_message:
+    topic: jarvis/${device_name}/status
+    payload: offline
+    retain: true
+  on_message:
+    # myjarvis sends an HTTP URL pointing to a TTS audio file (e.g. piper output)
+    - topic: jarvis/${device_name}/tts_url
+      then:
+        - light.turn_on:
+            id: voice_assistant_leds
+            effect: "Replying"
+        - media_player.play_media:
+            id: voice_media_player
+            media_url: !lambda 'return x;'
+            announcement: true
+    # LED control: "listening" | "thinking" | "off"
+    - topic: jarvis/${device_name}/led
+      then:
+        - lambda: |-
+            if (x == "listening") {
+              auto call = id(voice_assistant_leds).make_call();
+              call.set_effect("Listening");
+              call.perform();
+            } else if (x == "thinking") {
+              auto call = id(voice_assistant_leds).make_call();
+              call.set_effect("Thinking");
+              call.perform();
+            } else {
+              id(voice_assistant_leds).turn_off();
+            }
+
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
+globals:
+  - id: streaming_audio
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+# ---------------------------------------------------------------------------
+# Switches
+# ---------------------------------------------------------------------------
+switch:
+  # Enables the internal speaker amplifier — must be on before audio plays
+  - platform: gpio
+    pin: GPIO47
+    id: internal_speaker_amp
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+  # Software mute (only effective when hardware mute switch is off)
+  - platform: template
+    id: master_mute_switch
+    name: "Mute"
+    icon: "mdi:microphone-off"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - micro_wake_word.stop:
+    on_turn_off:
+      - micro_wake_word.start:
+
+# ---------------------------------------------------------------------------
+# Binary sensors
+# ---------------------------------------------------------------------------
+binary_sensor:
+  # Center button — single press starts/stops manual push-to-talk
+  - platform: gpio
+    id: center_button
+    name: "Center Button"
+    pin:
+      number: GPIO0
+      inverted: true
+    on_press:
+      - if:
+          condition:
+            and:
+              - switch.is_off: master_mute_switch
+              - binary_sensor.is_off: hardware_mute_switch
+          then:
+            - script.execute: start_listening
+    on_release:
+      - if:
+          condition:
+            lambda: return id(streaming_audio);
+          then:
+            - script.stop: start_listening   # cancel 8s auto-timeout
+            - script.execute: stop_listening
+
+  # Hardware mute switch — physically cuts mic power; overrides software mute
+  - platform: gpio
+    id: hardware_mute_switch
+    name: "Hardware Mute"
+    pin:
+      number: GPIO3
+      inverted: true
+    on_press:
+      - micro_wake_word.stop:
+      - mqtt.publish:
+          topic: jarvis/${device_name}/muted
+          payload: "true"
+      - light.turn_off: voice_assistant_leds
+    on_release:
+      - if:
+          condition:
+            switch.is_off: master_mute_switch
+          then:
+            - micro_wake_word.start:
+      - mqtt.publish:
+          topic: jarvis/${device_name}/muted
+          payload: "false"
+
+  # 3.5mm headphone jack detect
+  - platform: gpio
+    id: jack_plugged
+    name: "Headphone Jack"
+    pin:
+      number: GPIO17
+      inverted: true
+
+# ---------------------------------------------------------------------------
+# Volume dial (rotary encoder)
+# ---------------------------------------------------------------------------
+sensor:
+  - platform: rotary_encoder
+    name: "Volume Dial"
+    id: volume_dial
+    pin_a: GPIO16
+    pin_b: GPIO18
+    on_clockwise:
+      - media_player.volume_up: voice_media_player
+    on_anticlockwise:
+      - media_player.volume_down: voice_media_player
+
+# ---------------------------------------------------------------------------
+# Microphone
+# 16kHz, 32-bit (I2S standard), stereo from XMOS (post-AEC/AGC)
+# mWW reads channel 0 (left) at gain_factor 4.
+# When streaming: on_data publishes raw 32-bit PCM chunks to MQTT.
+# myjarvis is responsible for converting to 16-bit mono before sending to
+# faster-whisper.
+# ---------------------------------------------------------------------------
+microphone:
+  - platform: i2s_audio
+    id: i2s_mics
+    i2s_din_pin: GPIO15
+    adc_type: external
+    pdm: false
+    sample_rate: 16000
+    bits_per_sample: 32bit
+    i2s_mode: secondary
+    i2s_audio_id: i2s_input
+    channel: stereo
+    on_data:
+      - if:
+          condition:
+            lambda: return id(streaming_audio);
+          then:
+            - lambda: |-
+                id(mqtt_client).publish(
+                  "jarvis/${device_name}/audio",
+                  reinterpret_cast<const char*>(x.data()),
+                  x.size()
+                );
+
+# ---------------------------------------------------------------------------
+# Speaker pipeline
+# Hardware: I2S secondary → AIC3204 DAC (48kHz, 32-bit, stereo)
+# Resampler: converts 16-bit 48kHz mono announcements to 32-bit stereo for DAC
+# ---------------------------------------------------------------------------
+speaker:
+  - platform: i2s_audio
+    id: i2s_audio_speaker
+    sample_rate: 48000
+    i2s_mode: secondary
+    i2s_dout_pin: GPIO10
+    bits_per_sample: 32bit
+    i2s_audio_id: i2s_output
+    dac_type: external
+    channel: stereo
+    timeout: never
+    buffer_duration: 100ms
+    audio_dac: aic3204_dac
+
+  - platform: resampler
+    id: announcement_resampling_speaker
+    output_speaker: i2s_audio_speaker
+    sample_rate: 48000
+    bits_per_sample: 16
+
+audio_dac:
+  - platform: aic3204
+    id: aic3204_dac
+    i2c_id: internal_i2c
+
+# ---------------------------------------------------------------------------
+# Media player — plays TTS audio from HTTP URLs sent via MQTT
+# ---------------------------------------------------------------------------
+http_request:
+  buffer_size_rx: 2048
+
+media_source:
+  - platform: http_request
+    id: http_announcement_source
+    buffer_size: 250000
+
+media_player:
+  - platform: speaker_source
+    id: voice_media_player
+    name: "Voice"
+    announcement_pipeline:
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+      speaker: announcement_resampling_speaker
+      sources:
+        - http_announcement_source
+    volume_increment: 0.05
+    volume_min: 0.4
+    volume_max: 0.85
+    on_announcement:
+      - light.turn_on:
+          id: voice_assistant_leds
+          effect: "Replying"
+    on_state:
+      - if:
+          condition:
+            not:
+              media_player.is_announcing: voice_media_player
+          then:
+            - light.turn_off: voice_assistant_leds
+
+# ---------------------------------------------------------------------------
+# LED ring — 12x WS2812 on GPIO21, powered via GPIO45
+# Physical remapping: segments 7-11 then 0-6 matches front-panel orientation
+# ---------------------------------------------------------------------------
+power_supply:
+  - id: led_power
+    pin: GPIO45
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: leds_internal
+    pin: GPIO21
+    chipset: WS2812
+    num_leds: 12
+    rgb_order: GRB
+    max_refresh_rate: 15ms
+    rmt_symbols: 192
+    default_transition_length: 0ms
+    power_supply: led_power
+
+  - platform: partition
+    id: voice_assistant_leds
+    internal: true
+    default_transition_length: 0ms
+    segments:
+      - id: leds_internal
+        from: 7
+        to: 11
+      - id: leds_internal
+        from: 0
+        to: 6
+    effects:
+      - addressable_lambda:
+          name: "Listening"
+          update_interval: 50ms
+          lambda: |-
+            for (int i = 0; i < it.size(); i++) {
+              it[i] = Color(0, 100, 255);
+            }
+      - addressable_lambda:
+          name: "Thinking"
+          update_interval: 80ms
+          lambda: |-
+            static int pos = 0;
+            for (int i = 0; i < it.size(); i++) {
+              int dist = abs(i - (pos % it.size()));
+              if (dist > it.size() / 2) dist = it.size() - dist;
+              uint8_t bright = max(0, 200 - dist * 60);
+              it[i] = Color(bright, bright / 2, 0);
+            }
+            pos++;
+      - addressable_lambda:
+          name: "Replying"
+          update_interval: 50ms
+          lambda: |-
+            for (int i = 0; i < it.size(); i++) {
+              it[i] = Color(0, 180, 0);
+            }
+
+# ---------------------------------------------------------------------------
+# XMOS XU316 voice DSP — handles echo cancellation, noise removal, AGC
+# Managed via I2C; firmware auto-upgrades on first boot if version mismatch
+# ---------------------------------------------------------------------------
+voice_kit:
+  id: voice_kit_component
+  i2c_id: internal_i2c
+  reset_pin: GPIO4
+  firmware:
+    url: https://github.com/esphome/voice-kit-xmos-firmware/releases/download/v1.3.1/ffva_v1.3.1_upgrade.bin
+    version: "1.3.1"
+    md5: 964635c5bf125529dab14a2472a15401
+
+# ---------------------------------------------------------------------------
+# microWakeWord — hey_jarvis TFLite model, runs entirely on ESP32-S3
+# No audio leaves the device until wake word is detected.
+# ---------------------------------------------------------------------------
+micro_wake_word:
+  id: mww
+  microphone:
+    microphone: i2s_mics
+    channels: 1       # left channel (post-XMOS)
+    gain_factor: 4
+  stop_after_detection: false
+  models:
+    - model: hey_jarvis
+      id: hey_jarvis
+  vad:
+  on_wake_word_detected:
+    - if:
+        condition:
+          and:
+            - switch.is_off: master_mute_switch
+            - binary_sensor.is_off: hardware_mute_switch
+        then:
+          - script.execute: start_listening
+
+# ---------------------------------------------------------------------------
+# Scripts
+# ---------------------------------------------------------------------------
+script:
+  # start_listening: stop mWW, open mic, stream audio to MQTT
+  # Auto-stops after 8s if not manually cancelled (prevents runaway streaming)
+  - id: start_listening
+    then:
+      - lambda: id(streaming_audio) = true;
+      - micro_wake_word.stop:
+      - microphone.start: i2s_mics
+      - mqtt.publish:
+          topic: jarvis/${device_name}/audio_start
+          payload: "start"
+      - light.turn_on:
+          id: voice_assistant_leds
+          effect: "Listening"
+      - delay: 8s
+      - script.execute: stop_listening
+
+  # stop_listening: close mic, publish stop signal, restart mWW
+  - id: stop_listening
+    then:
+      - lambda: id(streaming_audio) = false;
+      - microphone.stop: i2s_mics
+      - mqtt.publish:
+          topic: jarvis/${device_name}/audio_stop
+          payload: "stop"
+      - light.turn_on:
+          id: voice_assistant_leds
+          effect: "Thinking"
+      - micro_wake_word.start:
+
+# ---------------------------------------------------------------------------
+# External components
+# ---------------------------------------------------------------------------
+external_components:
+  # voice_kit: XMOS XU316 DSP management (I2C control + firmware OTA)
+  - source:
+      type: git
+      url: https://github.com/esphome/home-assistant-voice-pe
+      ref: dev
+    components:
+      - voice_kit
+    refresh: 0s
+  # media_source: HTTP and audio_file media source platforms
+  - source:
+      type: git
+      url: https://github.com/kahrendt/esphome
+      ref: 7a6cf5c8472b7e2fa18ee0fc314f66a80d249e32
+    components: [const, media_source]
+  # http_request: pinned to a known-good commit for stable audio streaming
+  - source:
+      type: git
+      url: https://github.com/esphome/esphome
+      ref: ff8ce89556748509d7ee8724e12d9d43d3c8c1e8
+    refresh: 0s
+    components: [http_request]
