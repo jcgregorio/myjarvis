@@ -113,54 +113,6 @@ mqtt:
     topic: jarvis/${device_name}/status
     payload: offline
     retain: true
-  on_connect:
-    - delay: 1s
-    - lambda: |-
-        auto ch0 = id(voice_kit_component).read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_0);
-        auto ch1 = id(voice_kit_component).read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_1);
-        uint8_t vnr = id(voice_kit_component).read_vnr();
-        char buf[160];
-        snprintf(buf, sizeof(buf), "ch0=%d ch1=%d vnr=%d", (int)ch0, (int)ch1, (int)vnr);
-        id(mqtt_client).publish("jarvis/${device_name}/xmos_stages", buf);
-
-        // Try to init I2S TX on the speaker bus for XMOS AEC reference
-        i2s_chan_config_t chan_cfg = {
-            .id = I2S_NUM_0,
-            .role = I2S_ROLE_SLAVE,
-            .dma_desc_num = 4,
-            .dma_frame_num = 256,
-            .auto_clear = true,
-        };
-        i2s_chan_handle_t tx_handle = nullptr;
-        esp_err_t err = i2s_new_channel(&chan_cfg, &tx_handle, NULL);
-        snprintf(buf, sizeof(buf), "i2s_new_channel: %s", esp_err_to_name(err));
-        id(mqtt_client).publish("jarvis/${device_name}/i2s_tx_init", buf);
-        if (err == ESP_OK) {
-            i2s_std_config_t std_cfg = {
-                .clk_cfg = {
-                    .sample_rate_hz = 48000,
-                    .clk_src = I2S_CLK_SRC_DEFAULT,
-                    .mclk_multiple = I2S_MCLK_MULTIPLE_256,
-                },
-                .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
-                .gpio_cfg = {
-                    .mclk = I2S_GPIO_UNUSED,
-                    .bclk = (gpio_num_t)8,
-                    .ws = (gpio_num_t)7,
-                    .dout = (gpio_num_t)10,
-                    .din = I2S_GPIO_UNUSED,
-                    .invert_flags = {false, false, false},
-                },
-            };
-            err = i2s_channel_init_std_mode(tx_handle, &std_cfg);
-            snprintf(buf, sizeof(buf), "init_std: %s", esp_err_to_name(err));
-            id(mqtt_client).publish("jarvis/${device_name}/i2s_tx_init", buf);
-            if (err == ESP_OK) {
-                err = i2s_channel_enable(tx_handle);
-                snprintf(buf, sizeof(buf), "enable: %s", esp_err_to_name(err));
-                id(mqtt_client).publish("jarvis/${device_name}/i2s_tx_init", buf);
-            }
-        }
   on_message:
     # myjarvis sends an HTTP URL pointing to a TTS audio file (e.g. piper output)
     - topic: jarvis/${device_name}/tts_url
@@ -313,26 +265,6 @@ microphone:
     channel: stereo
     on_data:
       - lambda: |-
-          static uint32_t debug_counter = 0;
-          if (++debug_counter % 50 == 0) {
-            // Check for any non-zero bytes at all
-            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(x.data());
-            uint32_t nonzero_bytes = 0;
-            uint8_t max_byte = 0;
-            uint32_t first_nonzero_offset = 0xFFFFFFFF;
-            for (size_t i = 0; i < x.size(); i++) {
-              if (bytes[i] != 0) {
-                nonzero_bytes++;
-                if (bytes[i] > max_byte) max_byte = bytes[i];
-                if (first_nonzero_offset == 0xFFFFFFFF) first_nonzero_offset = i;
-              }
-            }
-            char buf[80];
-            snprintf(buf, sizeof(buf), "sz=%u nz_bytes=%lu max=0x%02x first_nz=%lu",
-              (unsigned)x.size(), (unsigned long)nonzero_bytes, (unsigned)max_byte,
-              (unsigned long)first_nonzero_offset);
-            id(mqtt_client).publish("jarvis/${device_name}/audio_peak", buf);
-          }
           if (id(streaming_audio)) {
             id(mqtt_client).publish(
               "jarvis/${device_name}/audio",
@@ -508,18 +440,6 @@ micro_wake_word:
           switch.is_off: master_mute_switch
         then:
           - script.execute: start_listening
-
-# ---------------------------------------------------------------------------
-# Interval — periodic VNR diagnostic
-# ---------------------------------------------------------------------------
-interval:
-  - interval: 2s
-    then:
-      - lambda: |-
-          uint8_t vnr = id(voice_kit_component).read_vnr();
-          char buf[32];
-          snprintf(buf, sizeof(buf), "vnr=%d", (int)vnr);
-          id(mqtt_client).publish("jarvis/${device_name}/vnr", buf);
 
 # ---------------------------------------------------------------------------
 # Scripts

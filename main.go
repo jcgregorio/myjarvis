@@ -44,6 +44,57 @@ func main() {
 	var toolsMu sync.RWMutex
 	tools := BuildTools(entities)
 
+	stt := NewSTTClient(cfg.WhisperURL)
+
+	// Start voice MQTT subscriber
+	router := NewAudioRouter()
+	router.OnComplete = func(device string, audio []byte) {
+		log.Printf("[voice] %s: received %d bytes of audio, transcribing...", device, len(audio))
+
+		start := time.Now()
+		transcript, err := stt.Transcribe(audio)
+		if err != nil {
+			log.Printf("[voice] %s: STT error: %v", device, err)
+			return
+		}
+		log.Printf("[voice] %s: \"%s\" (%dms)", device, transcript, time.Since(start).Milliseconds())
+
+		if transcript == "" {
+			return
+		}
+
+		toolsMu.RLock()
+		currentTools := tools
+		toolsMu.RUnlock()
+
+		toolCalls, reply, err := llm.Chat(context.Background(), transcript, currentTools)
+		if err != nil {
+			log.Printf("[voice] %s: LLM error: %v", device, err)
+			return
+		}
+
+		if len(toolCalls) == 0 {
+			log.Printf("[voice] %s: LLM reply: %s", device, reply)
+			return
+		}
+
+		for _, tc := range toolCalls {
+			log.Printf("[voice] %s: → %s(%s)", device, tc.Name, tc.Args)
+			if err := ha.ExecuteToolCall(context.Background(), tc); err != nil {
+				log.Printf("[voice] %s:   error: %v", device, err)
+			} else {
+				log.Printf("[voice] %s:   done", device)
+			}
+		}
+	}
+	voiceMQTT, err := NewVoiceMQTTClient(context.Background(), cfg.MQTTBroker, router)
+	if err != nil {
+		log.Printf("MQTT connection failed (voice input disabled): %v", err)
+	} else {
+		_ = voiceMQTT
+		fmt.Println("Voice MQTT subscriber started.")
+	}
+
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
@@ -158,18 +209,22 @@ func runList() {
 }
 
 type Config struct {
-	HAURL     string
-	HAToken   string
-	OllamaURL string
-	Model     string
+	HAURL      string
+	HAToken    string
+	OllamaURL  string
+	Model      string
+	MQTTBroker string
+	WhisperURL string
 }
 
 func configFromEnv() Config {
 	cfg := Config{
 		HAURL:     os.Getenv("HA_URL"),
 		HAToken:   os.Getenv("HA_TOKEN"),
-		OllamaURL: os.Getenv("OLLAMA_URL"),
-		Model:     os.Getenv("MODEL"),
+		OllamaURL:  os.Getenv("OLLAMA_URL"),
+		Model:      os.Getenv("MODEL"),
+		MQTTBroker: os.Getenv("MQTT_BROKER"),
+		WhisperURL: os.Getenv("WHISPER_URL"),
 	}
 	if cfg.HAURL == "" {
 		log.Fatal("HA_URL environment variable is required (e.g. http://homeassistant.local:8123)")
@@ -182,6 +237,12 @@ func configFromEnv() Config {
 	}
 	if cfg.Model == "" {
 		cfg.Model = "qwen2.5:7b"
+	}
+	if cfg.MQTTBroker == "" {
+		cfg.MQTTBroker = "mqtt://localhost:1883"
+	}
+	if cfg.WhisperURL == "" {
+		cfg.WhisperURL = "http://localhost:8000"
 	}
 	return cfg
 }
