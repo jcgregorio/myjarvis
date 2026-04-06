@@ -12,8 +12,8 @@
 #   esphome run kitchen-voice.yaml
 
 substitutions:
-  device_name: living-room-voice # used as MQTT topic prefix: jarvis/<device_name>/...
-  friendly_name: "Living Room Voice"
+  device_name: kitchen-voice # used as MQTT topic prefix: jarvis/<device_name>/...
+  friendly_name: "Kitchen Voice"
   mqtt_broker: "192.168.87.151" # WiFi interface of Docker host
 
 # ---------------------------------------------------------------------------
@@ -27,7 +27,14 @@ esphome:
     priority: -100
     then:
       - switch.turn_on: internal_speaker_amp
+      - lambda: "ESP_LOGI(\"on_boot\", \"Step 1: switch on\");"
       - delay: 5s
+      - lambda: "ESP_LOGI(\"on_boot\", \"Step 2: delay done\");"
+      - mqtt.publish:
+          topic: jarvis/${device_name}/xmos_stages
+          payload: "boot_delay_complete"
+      - lambda: |-
+          ESP_LOGI("on_boot", "Step 3: mWW start");
       - micro_wake_word.start:
 
 esp32:
@@ -119,48 +126,9 @@ mqtt:
         auto ch0 = id(voice_kit_component).read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_0);
         auto ch1 = id(voice_kit_component).read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_1);
         uint8_t vnr = id(voice_kit_component).read_vnr();
-        char buf[160];
+        char buf[80];
         snprintf(buf, sizeof(buf), "ch0=%d ch1=%d vnr=%d", (int)ch0, (int)ch1, (int)vnr);
         id(mqtt_client).publish("jarvis/${device_name}/xmos_stages", buf);
-
-        // Try to init I2S TX on the speaker bus for XMOS AEC reference
-        i2s_chan_config_t chan_cfg = {
-            .id = I2S_NUM_0,
-            .role = I2S_ROLE_SLAVE,
-            .dma_desc_num = 4,
-            .dma_frame_num = 256,
-            .auto_clear = true,
-        };
-        i2s_chan_handle_t tx_handle = nullptr;
-        esp_err_t err = i2s_new_channel(&chan_cfg, &tx_handle, NULL);
-        snprintf(buf, sizeof(buf), "i2s_new_channel: %s", esp_err_to_name(err));
-        id(mqtt_client).publish("jarvis/${device_name}/i2s_tx_init", buf);
-        if (err == ESP_OK) {
-            i2s_std_config_t std_cfg = {
-                .clk_cfg = {
-                    .sample_rate_hz = 48000,
-                    .clk_src = I2S_CLK_SRC_DEFAULT,
-                    .mclk_multiple = I2S_MCLK_MULTIPLE_256,
-                },
-                .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
-                .gpio_cfg = {
-                    .mclk = I2S_GPIO_UNUSED,
-                    .bclk = (gpio_num_t)8,
-                    .ws = (gpio_num_t)7,
-                    .dout = (gpio_num_t)10,
-                    .din = I2S_GPIO_UNUSED,
-                    .invert_flags = {false, false, false},
-                },
-            };
-            err = i2s_channel_init_std_mode(tx_handle, &std_cfg);
-            snprintf(buf, sizeof(buf), "init_std: %s", esp_err_to_name(err));
-            id(mqtt_client).publish("jarvis/${device_name}/i2s_tx_init", buf);
-            if (err == ESP_OK) {
-                err = i2s_channel_enable(tx_handle);
-                snprintf(buf, sizeof(buf), "enable: %s", esp_err_to_name(err));
-                id(mqtt_client).publish("jarvis/${device_name}/i2s_tx_init", buf);
-            }
-        }
   on_message:
     # myjarvis sends an HTTP URL pointing to a TTS audio file (e.g. piper output)
     - topic: jarvis/${device_name}/tts_url
@@ -475,8 +443,6 @@ voice_kit:
   id: voice_kit_component
   i2c_id: internal_i2c
   reset_pin: GPIO4
-  channel_0_stage: AGC
-  channel_1_stage: NS
   firmware:
     url: https://github.com/esphome/voice-kit-xmos-firmware/releases/download/v1.3.1/ffva_v1.3.1_upgrade.bin
     version: "1.3.1"
