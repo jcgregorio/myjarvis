@@ -137,7 +137,10 @@ mqtt:
               call.set_effect("Thinking");
               call.perform();
             } else {
-              id(voice_assistant_leds).turn_off();
+              auto call = id(voice_assistant_leds).make_call();
+              call.set_effect("none");
+              call.set_state(false);
+              call.perform();
             }
 
 # ---------------------------------------------------------------------------
@@ -458,7 +461,7 @@ script:
       - light.turn_on:
           id: voice_assistant_leds
           effect: "Listening"
-      - delay: 8s
+      - delay: 3s
       - script.execute: stop_listening
 
   # stop_listening: clear flag, publish stop, re-enable wake word model
@@ -468,9 +471,6 @@ script:
       - mqtt.publish:
           topic: jarvis/${device_name}/audio_stop
           payload: "stop"
-      - light.turn_on:
-          id: voice_assistant_leds
-          effect: "Thinking"
       - micro_wake_word.enable_model: hey_jarvis
 
 # ---------------------------------------------------------------------------

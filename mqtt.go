@@ -80,28 +80,27 @@ func (v *VoiceMQTTClient) handleMessage(pr paho.PublishReceived) (bool, error) {
 		log.Printf("[mqtt] %s: wake word detected", device)
 	case "audio_start":
 		v.router.StartSession(device)
-		v.publishLED(device, "listening")
 	case "audio":
 		v.router.AppendAudio(device, pr.Packet.Payload)
 	case "audio_stop":
 		v.router.StopSession(device)
-		v.publishLED(device, "thinking")
 	}
 	return true, nil
 }
 
 // publishLED sends an LED state command back to the device.
-func (v *VoiceMQTTClient) publishLED(device, state string) {
+func (v *VoiceMQTTClient) PublishLED(device, state string) {
 	if v.cm == nil {
 		return
 	}
 	topic := fmt.Sprintf("jarvis/%s/led", device)
+	log.Printf("[mqtt] publishing LED %s → %s", topic, state)
 	if _, err := v.cm.Publish(context.Background(), &paho.Publish{
 		Topic:   topic,
 		QoS:     0,
 		Payload: []byte(state),
 	}); err != nil {
-		log.Printf("[mqtt] publish LED %s/%s: %v", device, state, err)
+		log.Printf("[mqtt] publish LED error: %v", err)
 	}
 }
 

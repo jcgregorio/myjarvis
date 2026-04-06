@@ -48,18 +48,27 @@ func main() {
 
 	// Start voice MQTT subscriber
 	router := NewAudioRouter()
+	voiceMQTT, err := NewVoiceMQTTClient(context.Background(), cfg.MQTTBroker, router)
+	if err != nil {
+		log.Printf("MQTT connection failed (voice input disabled): %v", err)
+	} else {
+		fmt.Println("Voice MQTT subscriber started.")
+	}
 	router.OnComplete = func(device string, audio []byte) {
 		log.Printf("[voice] %s: received %d bytes of audio, transcribing...", device, len(audio))
+		voiceMQTT.PublishLED(device, "thinking")
 
 		start := time.Now()
 		transcript, err := stt.Transcribe(audio)
 		if err != nil {
 			log.Printf("[voice] %s: STT error: %v", device, err)
+			voiceMQTT.PublishLED(device, "off")
 			return
 		}
 		log.Printf("[voice] %s: \"%s\" (%dms)", device, transcript, time.Since(start).Milliseconds())
 
 		if transcript == "" {
+			voiceMQTT.PublishLED(device, "off")
 			return
 		}
 
@@ -70,11 +79,13 @@ func main() {
 		toolCalls, reply, err := llm.Chat(context.Background(), transcript, currentTools)
 		if err != nil {
 			log.Printf("[voice] %s: LLM error: %v", device, err)
+			voiceMQTT.PublishLED(device, "off")
 			return
 		}
 
 		if len(toolCalls) == 0 {
 			log.Printf("[voice] %s: LLM reply: %s", device, reply)
+			voiceMQTT.PublishLED(device, "off")
 			return
 		}
 
@@ -86,13 +97,7 @@ func main() {
 				log.Printf("[voice] %s:   done", device)
 			}
 		}
-	}
-	voiceMQTT, err := NewVoiceMQTTClient(context.Background(), cfg.MQTTBroker, router)
-	if err != nil {
-		log.Printf("MQTT connection failed (voice input disabled): %v", err)
-	} else {
-		_ = voiceMQTT
-		fmt.Println("Voice MQTT subscriber started.")
+		voiceMQTT.PublishLED(device, "off")
 	}
 
 	go func() {
