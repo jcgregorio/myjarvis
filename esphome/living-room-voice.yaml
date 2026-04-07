@@ -124,6 +124,11 @@ mqtt:
             id: voice_media_player
             media_url: !lambda "return x;"
             announcement: true
+    # myjarvis VAD detected end of speech — stop streaming
+    - topic: jarvis/${device_name}/stop_streaming
+      then:
+        - script.stop: start_listening
+        - script.execute: stop_listening
     # LED control: "listening" | "thinking" | "off"
     - topic: jarvis/${device_name}/led
       then:
@@ -268,13 +273,13 @@ microphone:
     channel: stereo
     on_data:
       - lambda: |-
-          if (id(streaming_audio)) {
-            id(mqtt_client).publish(
-              "jarvis/${device_name}/audio",
-              reinterpret_cast<const char*>(x.data()),
-              x.size()
-            );
-          }
+          if (!id(streaming_audio)) return;
+          id(mqtt_client).publish(
+            "jarvis/${device_name}/audio",
+            reinterpret_cast<const char*>(x.data()),
+            x.size()
+          );
+
 
 # ---------------------------------------------------------------------------
 # Speaker pipeline
@@ -461,17 +466,22 @@ script:
       - light.turn_on:
           id: voice_assistant_leds
           effect: "Listening"
-      - delay: 3s
+      - delay: 30s
       - script.execute: stop_listening
 
   # stop_listening: clear flag, publish stop, re-enable wake word model
   - id: stop_listening
+    mode: restart
     then:
-      - lambda: id(streaming_audio) = false;
-      - mqtt.publish:
-          topic: jarvis/${device_name}/audio_stop
-          payload: "stop"
-      - micro_wake_word.enable_model: hey_jarvis
+      - if:
+          condition:
+            lambda: return id(streaming_audio);
+          then:
+            - lambda: id(streaming_audio) = false;
+            - mqtt.publish:
+                topic: jarvis/${device_name}/audio_stop
+                payload: "stop"
+            - micro_wake_word.enable_model: hey_jarvis
 
 # ---------------------------------------------------------------------------
 # External components

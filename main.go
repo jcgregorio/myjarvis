@@ -46,13 +46,23 @@ func main() {
 
 	stt := NewSTTClient(cfg.WhisperURL)
 
+	// Initialize Silero VAD
+	vad, err := NewVADProcessor(cfg.VADModelPath)
+	if err != nil {
+		log.Fatalf("Failed to initialize VAD: %v", err)
+	}
+	defer vad.Destroy()
+
 	// Start voice MQTT subscriber
-	router := NewAudioRouter()
+	router := NewAudioRouter(vad)
 	voiceMQTT, err := NewVoiceMQTTClient(context.Background(), cfg.MQTTBroker, router)
 	if err != nil {
 		log.Printf("MQTT connection failed (voice input disabled): %v", err)
 	} else {
 		fmt.Println("Voice MQTT subscriber started.")
+	}
+	router.OnSpeechEnd = func(device string) {
+		voiceMQTT.PublishStopStreaming(device)
 	}
 	router.OnComplete = func(device string, audio []byte) {
 		log.Printf("[voice] %s: received %d bytes of audio, transcribing...", device, len(audio))
@@ -214,12 +224,13 @@ func runList() {
 }
 
 type Config struct {
-	HAURL      string
-	HAToken    string
-	OllamaURL  string
-	Model      string
-	MQTTBroker string
-	WhisperURL string
+	HAURL        string
+	HAToken      string
+	OllamaURL    string
+	Model        string
+	MQTTBroker   string
+	WhisperURL   string
+	VADModelPath string
 }
 
 func configFromEnv() Config {
@@ -228,8 +239,9 @@ func configFromEnv() Config {
 		HAToken:   os.Getenv("HA_TOKEN"),
 		OllamaURL:  os.Getenv("OLLAMA_URL"),
 		Model:      os.Getenv("MODEL"),
-		MQTTBroker: os.Getenv("MQTT_BROKER"),
-		WhisperURL: os.Getenv("WHISPER_URL"),
+		MQTTBroker:   os.Getenv("MQTT_BROKER"),
+		WhisperURL:   os.Getenv("WHISPER_URL"),
+		VADModelPath: os.Getenv("VAD_MODEL_PATH"),
 	}
 	if cfg.HAURL == "" {
 		log.Fatal("HA_URL environment variable is required (e.g. http://homeassistant.local:8123)")
@@ -248,6 +260,9 @@ func configFromEnv() Config {
 	}
 	if cfg.WhisperURL == "" {
 		cfg.WhisperURL = "http://localhost:8000"
+	}
+	if cfg.VADModelPath == "" {
+		cfg.VADModelPath = "silero_vad.onnx"
 	}
 	return cfg
 }

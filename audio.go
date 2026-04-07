@@ -30,16 +30,21 @@ func (s *AudioSession) Bytes() []byte {
 }
 
 // AudioRouter manages per-device audio sessions.
-// When a session completes (audio_stop), the OnComplete callback is called.
+// When a session completes (via VAD or audio_stop), the OnComplete callback is called.
+// OnSpeechEnd is called when VAD detects end of speech, allowing the caller to
+// signal the device to stop streaming.
 type AudioRouter struct {
-	mu         sync.Mutex
-	sessions   map[string]*AudioSession // device name → active session
-	OnComplete func(device string, audio []byte)
+	mu          sync.Mutex
+	sessions    map[string]*AudioSession // device name → active session
+	vad         *VADProcessor
+	OnComplete  func(device string, audio []byte)
+	OnSpeechEnd func(device string)
 }
 
-func NewAudioRouter() *AudioRouter {
+func NewAudioRouter(vad *VADProcessor) *AudioRouter {
 	return &AudioRouter{
 		sessions: make(map[string]*AudioSession),
+		vad:      vad,
 	}
 }
 
@@ -54,10 +59,14 @@ func (r *AudioRouter) StartSession(device string) {
 		Device:    device,
 		StartedAt: time.Now(),
 	}
+	if r.vad != nil {
+		r.vad.Reset()
+	}
 	log.Printf("[audio] %s: session started", device)
 }
 
 // AppendAudio adds a chunk to the active session for a device.
+// If VAD detects end of speech, it automatically stops the session.
 func (r *AudioRouter) AppendAudio(device string, data []byte) {
 	r.mu.Lock()
 	s := r.sessions[device]
@@ -66,16 +75,29 @@ func (r *AudioRouter) AppendAudio(device string, data []byte) {
 		return // no active session — drop the chunk
 	}
 	s.Append(data)
+
+	// Run VAD on the chunk
+	if r.vad != nil && r.vad.Append(data) {
+		log.Printf("[audio] %s: VAD detected end of speech", device)
+		if r.OnSpeechEnd != nil {
+			r.OnSpeechEnd(device)
+		}
+		r.completeSession(device)
+	}
 }
 
 // StopSession ends the session for a device and invokes OnComplete.
+// Called by the firmware's audio_stop (safety timeout).
 func (r *AudioRouter) StopSession(device string) {
+	r.completeSession(device)
+}
+
+func (r *AudioRouter) completeSession(device string) {
 	r.mu.Lock()
 	s := r.sessions[device]
 	delete(r.sessions, device)
 	r.mu.Unlock()
 	if s == nil {
-		log.Printf("[audio] %s: stop with no active session", device)
 		return
 	}
 	audio := s.Bytes()

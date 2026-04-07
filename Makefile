@@ -9,19 +9,19 @@ ESPHOME := $(HOME)/.venv/esphome/bin/esphome
 .PHONY: run dry-run list tools ollama test install flash-kitchen
 
 install:
-	go install .
+	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" go install .
 
 run: install
-	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) $(GOBIN)/myjarvis
+	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu $(GOBIN)/myjarvis
 
 dry-run: install
-	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) $(GOBIN)/myjarvis -dry-run
+	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu $(GOBIN)/myjarvis -dry-run
 
 list: install
-	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) $(GOBIN)/myjarvis list
+	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu $(GOBIN)/myjarvis list
 
 tools: install
-	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) $(GOBIN)/myjarvis tools
+	HA_URL=$(HA_URL) HA_TOKEN=$(HA_TOKEN) LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu $(GOBIN)/myjarvis tools
 
 flash-kitchen:
 	$(ESPHOME) run esphome/kitchen-voice.yaml --device /dev/ttyACM1
