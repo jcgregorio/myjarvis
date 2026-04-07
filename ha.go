@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -104,6 +106,8 @@ func (h *HAClient) ExecuteToolCall(ctx context.Context, tc ToolCall) error {
 	switch tc.Name {
 	case "set_state":
 		return h.executeSetState(ctx, tc.Args)
+	case "trigger_automation":
+		return h.executeTriggerAutomation(ctx, tc.Args)
 	case "set_timer":
 		return h.executeSetTimer(ctx, tc.Args)
 	case "add_to_list":
@@ -132,6 +136,27 @@ func (h *HAClient) executeSetState(ctx context.Context, args string) error {
 	}
 	domain, _, _ := strings.Cut(entityID, ".")
 	return h.callService(ctx, domain, "turn_"+p.State, map[string]any{"entity_id": entityID})
+}
+
+func (h *HAClient) executeTriggerAutomation(ctx context.Context, args string) error {
+	var p struct {
+		Entity string `json:"entity"`
+	}
+	if err := json.Unmarshal([]byte(args), &p); err != nil {
+		return fmt.Errorf("parse args: %w", err)
+	}
+	h.mu.RLock()
+	entityID, ok := h.nameToID[strings.ToLower(p.Entity)]
+	h.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("unknown automation %q", p.Entity)
+	}
+	domain, _, _ := strings.Cut(entityID, ".")
+	service := "trigger"
+	if domain == "script" {
+		service = "turn_on"
+	}
+	return h.callService(ctx, domain, service, map[string]any{"entity_id": entityID})
 }
 
 func (h *HAClient) executeSetTimer(ctx context.Context, args string) error {
@@ -177,6 +202,7 @@ func (h *HAClient) callService(ctx context.Context, domain, service string, body
 		return err
 	}
 	url := fmt.Sprintf("%s/api/services/%s/%s", h.baseURL, domain, service)
+	log.Printf("[ha] POST %s %s", url, data)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -190,8 +216,10 @@ func (h *HAClient) callService(ctx context.Context, domain, service string, body
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
+	log.Printf("[ha] response %d: %s", resp.StatusCode, respBody)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HA service %s/%s returned %d", domain, service, resp.StatusCode)
+		return fmt.Errorf("HA service %s/%s returned %d: %s", domain, service, resp.StatusCode, respBody)
 	}
 	return nil
 }

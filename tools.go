@@ -11,12 +11,18 @@ import (
 // The entity_id enum is populated dynamically so the LLM can only reference
 // entities that actually exist in the HA instance.
 func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
-	entityNames := make([]any, len(entities))
-	for i, e := range entities {
-		entityNames[i] = strings.ToLower(e.FriendlyName())
+	var entityNames, automationNames []any
+	for _, e := range entities {
+		name := strings.ToLower(e.FriendlyName())
+		domain, _, _ := strings.Cut(e.EntityID, ".")
+		if domain == "automation" || domain == "script" {
+			automationNames = append(automationNames, name)
+		} else {
+			entityNames = append(entityNames, name)
+		}
 	}
 
-	return []openai.ChatCompletionToolParam{
+	tools := []openai.ChatCompletionToolParam{
 		{
 			Function: shared.FunctionDefinitionParam{
 				Name:        "set_state",
@@ -38,7 +44,30 @@ func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
 				},
 			},
 		},
-		{
+	}
+
+	if len(automationNames) > 0 {
+		tools = append(tools, openai.ChatCompletionToolParam{
+			Function: shared.FunctionDefinitionParam{
+				Name:        "trigger_automation",
+				Description: openai.String("Trigger a Home Assistant automation or script to run"),
+				Parameters: shared.FunctionParameters{
+					"type": "object",
+					"properties": map[string]any{
+						"entity": map[string]any{
+							"type":        "string",
+							"description": "The name of the automation to trigger",
+							"enum":        automationNames,
+						},
+					},
+					"required": []string{"entity"},
+				},
+			},
+		})
+	}
+
+	return append(tools,
+		openai.ChatCompletionToolParam{
 			Function: shared.FunctionDefinitionParam{
 				Name:        "set_timer",
 				Description: openai.String("Start a countdown timer"),
@@ -58,7 +87,7 @@ func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
 				},
 			},
 		},
-		{
+		openai.ChatCompletionToolParam{
 			Function: shared.FunctionDefinitionParam{
 				Name:        "add_to_list",
 				Description: openai.String(`Add an item to a list. Use list "Shopping List" for groceries (default if not specified). Use the to-do list name for other lists.`),
@@ -78,5 +107,5 @@ func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
 				},
 			},
 		},
-	}
+	)
 }
