@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/eclipse/paho.golang/autopaho"
 	"github.com/eclipse/paho.golang/paho"
@@ -118,6 +119,15 @@ func (v *VoiceMQTTClient) PublishStopStreaming(device string) {
 	}); err != nil {
 		log.Printf("[mqtt] publish stop_streaming error: %v", err)
 	}
+}
+
+// SignalError flashes the error LED for 2 seconds then turns it off.
+func (v *VoiceMQTTClient) SignalError(device string) {
+	v.PublishLED(device, "error")
+	go func() {
+		time.Sleep(2 * time.Second)
+		v.PublishLED(device, "off")
+	}()
 }
 
 // PublishTTSURL sends a TTS audio URL to a device for playback.

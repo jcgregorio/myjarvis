@@ -124,7 +124,7 @@ mqtt:
       then:
         - script.stop: start_listening
         - script.execute: stop_listening
-    # LED control: "listening" | "thinking" | "off"
+    # LED control: "listening" | "thinking" | "error" | "off"
     - topic: jarvis/${device_name}/led
       then:
         - lambda: |-
@@ -135,6 +135,10 @@ mqtt:
             } else if (x == "thinking") {
               auto call = id(voice_assistant_leds).make_call();
               call.set_effect("Thinking");
+              call.perform();
+            } else if (x == "error") {
+              auto call = id(voice_assistant_leds).make_call();
+              call.set_effect("Error");
               call.perform();
             } else {
               auto call = id(voice_assistant_leds).make_call();
@@ -401,6 +405,16 @@ light:
             for (int i = 0; i < it.size(); i++) {
               it[i] = Color(0, 180, 0);
             }
+      - addressable_lambda:
+          name: "Error"
+          update_interval: 80ms
+          lambda: |-
+            static int frame = 0;
+            uint8_t bright = (frame % 6 < 3) ? 255 : 0;
+            for (int i = 0; i < it.size(); i++) {
+              it[i] = Color(bright, 0, 0);
+            }
+            frame++;
 
 # ---------------------------------------------------------------------------
 # XMOS XU316 voice DSP — handles echo cancellation, noise removal, AGC

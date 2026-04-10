@@ -27,7 +27,7 @@ flash-kitchen:
 	$(ESPHOME) run esphome/kitchen-voice.yaml --device /dev/ttyACM1
 
 flash-living-room:
-	$(ESPHOME) run esphome/living-room-voice.yaml
+	$(ESPHOME) run esphome/living-room-voice.yaml --device /dev/ttyACM1
 
 flash-kitchen-test:
 	$(ESPHOME) run esphome/test-official-kitchen.yaml --device /dev/ttyACM1 --device /dev/ttyACM1

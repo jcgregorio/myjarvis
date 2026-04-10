@@ -89,25 +89,31 @@ func main() {
 		toolCalls, reply, err := llm.Chat(context.Background(), transcript, currentTools)
 		if err != nil {
 			log.Printf("[voice] %s: LLM error: %v", device, err)
-			voiceMQTT.PublishLED(device, "off")
+			voiceMQTT.SignalError(device)
 			return
 		}
 
 		if len(toolCalls) == 0 {
-			log.Printf("[voice] %s: LLM reply: %s", device, reply)
-			voiceMQTT.PublishLED(device, "off")
+			log.Printf("[voice] %s: LLM reply (no tool call): %s", device, reply)
+			voiceMQTT.SignalError(device)
 			return
 		}
 
+		hadError := false
 		for _, tc := range toolCalls {
 			log.Printf("[voice] %s: → %s(%s)", device, tc.Name, tc.Args)
 			if err := ha.ExecuteToolCall(context.Background(), tc); err != nil {
 				log.Printf("[voice] %s:   error: %v", device, err)
+				hadError = true
 			} else {
 				log.Printf("[voice] %s:   done", device)
 			}
 		}
-		voiceMQTT.PublishLED(device, "off")
+		if hadError {
+			voiceMQTT.SignalError(device)
+		} else {
+			voiceMQTT.PublishLED(device, "off")
+		}
 	}
 
 	go func() {
