@@ -27,14 +27,7 @@ esphome:
     priority: -100
     then:
       - switch.turn_on: internal_speaker_amp
-      - lambda: "ESP_LOGI(\"on_boot\", \"Step 1: switch on\");"
       - delay: 5s
-      - lambda: "ESP_LOGI(\"on_boot\", \"Step 2: delay done\");"
-      - mqtt.publish:
-          topic: jarvis/${device_name}/xmos_stages
-          payload: "boot_delay_complete"
-      - lambda: |-
-          ESP_LOGI("on_boot", "Step 3: mWW start");
       - micro_wake_word.start:
 
 esp32:
@@ -120,15 +113,6 @@ mqtt:
     topic: jarvis/${device_name}/status
     payload: offline
     retain: true
-  on_connect:
-    - delay: 1s
-    - lambda: |-
-        auto ch0 = id(voice_kit_component).read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_0);
-        auto ch1 = id(voice_kit_component).read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_1);
-        uint8_t vnr = id(voice_kit_component).read_vnr();
-        char buf[80];
-        snprintf(buf, sizeof(buf), "ch0=%d ch1=%d vnr=%d", (int)ch0, (int)ch1, (int)vnr);
-        id(mqtt_client).publish("jarvis/${device_name}/xmos_stages", buf);
   on_message:
     # myjarvis sends an HTTP URL pointing to a TTS audio file (e.g. piper output)
     - topic: jarvis/${device_name}/tts_url
@@ -140,6 +124,11 @@ mqtt:
             id: voice_media_player
             media_url: !lambda "return x;"
             announcement: true
+    # myjarvis VAD detected end of speech — stop streaming
+    - topic: jarvis/${device_name}/stop_streaming
+      then:
+        - script.stop: start_listening
+        - script.execute: stop_listening
     # LED control: "listening" | "thinking" | "off"
     - topic: jarvis/${device_name}/led
       then:
@@ -153,7 +142,10 @@ mqtt:
               call.set_effect("Thinking");
               call.perform();
             } else {
-              id(voice_assistant_leds).turn_off();
+              auto call = id(voice_assistant_leds).make_call();
+              call.set_effect("none");
+              call.set_state(false);
+              call.perform();
             }
 
 # ---------------------------------------------------------------------------
@@ -281,33 +273,13 @@ microphone:
     channel: stereo
     on_data:
       - lambda: |-
-          static uint32_t debug_counter = 0;
-          if (++debug_counter % 50 == 0) {
-            // Check for any non-zero bytes at all
-            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(x.data());
-            uint32_t nonzero_bytes = 0;
-            uint8_t max_byte = 0;
-            uint32_t first_nonzero_offset = 0xFFFFFFFF;
-            for (size_t i = 0; i < x.size(); i++) {
-              if (bytes[i] != 0) {
-                nonzero_bytes++;
-                if (bytes[i] > max_byte) max_byte = bytes[i];
-                if (first_nonzero_offset == 0xFFFFFFFF) first_nonzero_offset = i;
-              }
-            }
-            char buf[80];
-            snprintf(buf, sizeof(buf), "sz=%u nz_bytes=%lu max=0x%02x first_nz=%lu",
-              (unsigned)x.size(), (unsigned long)nonzero_bytes, (unsigned)max_byte,
-              (unsigned long)first_nonzero_offset);
-            id(mqtt_client).publish("jarvis/${device_name}/audio_peak", buf);
-          }
-          if (id(streaming_audio)) {
-            id(mqtt_client).publish(
-              "jarvis/${device_name}/audio",
-              reinterpret_cast<const char*>(x.data()),
-              x.size()
-            );
-          }
+          if (!id(streaming_audio)) return;
+          id(mqtt_client).publish(
+            "jarvis/${device_name}/audio",
+            reinterpret_cast<const char*>(x.data()),
+            x.size()
+          );
+
 
 # ---------------------------------------------------------------------------
 # Speaker pipeline
@@ -443,6 +415,8 @@ voice_kit:
   id: voice_kit_component
   i2c_id: internal_i2c
   reset_pin: GPIO4
+  channel_0_stage: AGC
+  channel_1_stage: NS
   firmware:
     url: https://github.com/esphome/voice-kit-xmos-firmware/releases/download/v1.3.1/ffva_v1.3.1_upgrade.bin
     version: "1.3.1"
@@ -460,7 +434,7 @@ micro_wake_word:
     gain_factor: 4
   stop_after_detection: false
   models:
-    - model: hey_jarvis
+    - model: hey_jarvis.json
       id: hey_jarvis
   on_wake_word_detected:
     - mqtt.publish:
@@ -474,18 +448,6 @@ micro_wake_word:
           switch.is_off: master_mute_switch
         then:
           - script.execute: start_listening
-
-# ---------------------------------------------------------------------------
-# Interval — periodic VNR diagnostic
-# ---------------------------------------------------------------------------
-interval:
-  - interval: 2s
-    then:
-      - lambda: |-
-          uint8_t vnr = id(voice_kit_component).read_vnr();
-          char buf[32];
-          snprintf(buf, sizeof(buf), "vnr=%d", (int)vnr);
-          id(mqtt_client).publish("jarvis/${device_name}/vnr", buf);
 
 # ---------------------------------------------------------------------------
 # Scripts
@@ -504,20 +466,22 @@ script:
       - light.turn_on:
           id: voice_assistant_leds
           effect: "Listening"
-      - delay: 8s
+      - delay: 30s
       - script.execute: stop_listening
 
   # stop_listening: clear flag, publish stop, re-enable wake word model
   - id: stop_listening
+    mode: restart
     then:
-      - lambda: id(streaming_audio) = false;
-      - mqtt.publish:
-          topic: jarvis/${device_name}/audio_stop
-          payload: "stop"
-      - light.turn_on:
-          id: voice_assistant_leds
-          effect: "Thinking"
-      - micro_wake_word.enable_model: hey_jarvis
+      - if:
+          condition:
+            lambda: return id(streaming_audio);
+          then:
+            - lambda: id(streaming_audio) = false;
+            - mqtt.publish:
+                topic: jarvis/${device_name}/audio_stop
+                payload: "stop"
+            - micro_wake_word.enable_model: hey_jarvis
 
 # ---------------------------------------------------------------------------
 # External components

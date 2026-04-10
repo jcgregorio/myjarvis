@@ -1,0 +1,150 @@
+# Minimal mic test for kitchen device — no microWakeWord, just audio diagnostics
+substitutions:
+  device_name: kitchen-voice
+
+esphome:
+  name: ${device_name}
+  friendly_name: "Kitchen Mic Test"
+  min_version: 2026.3.0
+  on_boot:
+    priority: -100
+    then:
+      - switch.turn_on: internal_speaker_amp
+      - delay: 5s
+      - microphone.capture: i2s_mics
+
+esp32:
+  board: esp32-s3-devkitc-1
+  cpu_frequency: 240MHz
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+ota:
+  - platform: esphome
+
+logger:
+  level: DEBUG
+  logs:
+    sensor: WARN
+    mqtt: WARN
+    wifi: WARN
+    component: WARN
+
+api:
+
+mqtt:
+  id: mqtt_client
+  broker: "192.168.87.151"
+  port: 1883
+  client_id: ${device_name}
+
+i2c:
+  - id: internal_i2c
+    sda: GPIO5
+    scl: GPIO6
+    frequency: 400kHz
+
+i2s_audio:
+  - id: i2s_output
+    i2s_lrclk_pin:
+      number: GPIO7
+    i2s_bclk_pin:
+      number: GPIO8
+  - id: i2s_input
+    i2s_lrclk_pin:
+      number: GPIO14
+    i2s_bclk_pin:
+      number: GPIO13
+
+microphone:
+  - platform: i2s_audio
+    id: i2s_mics
+    i2s_din_pin: GPIO15
+    adc_type: external
+    pdm: false
+    sample_rate: 16000
+    bits_per_sample: 32bit
+    i2s_mode: secondary
+    i2s_audio_id: i2s_input
+    channel: stereo
+    on_data:
+      - lambda: |-
+          static uint32_t counter = 0;
+          if (++counter % 50 == 0) {
+            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(x.data());
+            uint32_t nonzero = 0;
+            uint8_t maxb = 0;
+            for (size_t i = 0; i < x.size(); i++) {
+              if (bytes[i] != 0) { nonzero++; if (bytes[i] > maxb) maxb = bytes[i]; }
+            }
+            char buf[80];
+            snprintf(buf, sizeof(buf), "sz=%u nz=%lu max=0x%02x",
+              (unsigned)x.size(), (unsigned long)nonzero, (unsigned)maxb);
+            id(mqtt_client).publish("jarvis/${device_name}/audio_peak", buf);
+
+            // Also log free heap to understand memory situation
+            snprintf(buf, sizeof(buf), "free_internal=%u free_psram=%u",
+              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            id(mqtt_client).publish("jarvis/${device_name}/heap", buf);
+          }
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_audio_speaker
+    sample_rate: 48000
+    i2s_mode: secondary
+    i2s_dout_pin: GPIO10
+    bits_per_sample: 32bit
+    i2s_audio_id: i2s_output
+    dac_type: external
+    channel: stereo
+    timeout: never
+    buffer_duration: 100ms
+    audio_dac: aic3204_dac
+
+audio_dac:
+  - platform: aic3204
+    id: aic3204_dac
+    i2c_id: internal_i2c
+
+switch:
+  - platform: gpio
+    pin: GPIO47
+    id: internal_speaker_amp
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+voice_kit:
+  id: voice_kit_component
+  i2c_id: internal_i2c
+  reset_pin: GPIO4
+  firmware:
+    url: https://github.com/esphome/voice-kit-xmos-firmware/releases/download/v1.3.1/ffva_v1.3.1_upgrade.bin
+    version: "1.3.1"
+    md5: 964635c5bf125529dab14a2472a15401
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/esphome/home-assistant-voice-pe
+      ref: dev
+    components:
+      - voice_kit
+    refresh: 0s

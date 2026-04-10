@@ -1,0 +1,57 @@
+# Flash the official HA Voice PE firmware with our MQTT diagnostic injected.
+# If audio is non-zero here, the official firmware does something our firmware doesn't.
+
+packages:
+  official: !include .esphome/external_components/3bf38338/home-assistant-voice.yaml
+
+# Override WiFi
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Override name
+esphome:
+  name: kitchen-voice
+  friendly_name: "Kitchen Voice"
+  name_add_mac_suffix: false
+
+# Add MQTT for diagnostics
+mqtt:
+  id: mqtt_diag
+  broker: "192.168.87.151"
+  port: 1883
+  client_id: kitchen-voice-diag
+  on_connect:
+    - delay: 1s
+    - lambda: |-
+        auto ch0 = id(voice_kit_component).read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_0);
+        auto ch1 = id(voice_kit_component).read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_1);
+        uint8_t vnr = id(voice_kit_component).read_vnr();
+        char buf[80];
+        snprintf(buf, sizeof(buf), "ch0=%d ch1=%d vnr=%d", (int)ch0, (int)ch1, (int)vnr);
+        id(mqtt_diag).publish("jarvis/kitchen-voice/xmos_stages", buf);
+
+# Add on_data diagnostic to the existing microphone
+microphone:
+  - id: !extend i2s_mics
+    on_data:
+      - lambda: |-
+          static uint32_t debug_counter = 0;
+          if (++debug_counter % 50 == 0) {
+            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(x.data());
+            uint32_t nonzero_bytes = 0;
+            uint8_t max_byte = 0;
+            for (size_t i = 0; i < x.size(); i++) {
+              if (bytes[i] != 0) {
+                nonzero_bytes++;
+                if (bytes[i] > max_byte) max_byte = bytes[i];
+              }
+            }
+            char buf[80];
+            snprintf(buf, sizeof(buf), "sz=%u nz_bytes=%lu max=0x%02x",
+              (unsigned)x.size(), (unsigned long)nonzero_bytes, (unsigned)max_byte);
+            id(mqtt_diag).publish("jarvis/kitchen-voice/audio_peak", buf);
+          }
+
+ota:
+  - platform: esphome

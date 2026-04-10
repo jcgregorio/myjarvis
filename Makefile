@@ -6,7 +6,7 @@ OLLAMA_URL ?= http://localhost:11434/v1
 GOBIN := $(shell go env GOPATH)/bin
 ESPHOME := $(HOME)/.venv/esphome/bin/esphome
 
-.PHONY: run dry-run list tools ollama test install flash-kitchen
+.PHONY: run dry-run list tools ollama test install flash-kitchen flash-living-room flash-kitchen-test
 
 install:
 	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" go install .
@@ -25,6 +25,12 @@ tools: install
 
 flash-kitchen:
 	$(ESPHOME) run esphome/kitchen-voice.yaml --device /dev/ttyACM1
+
+flash-living-room:
+	$(ESPHOME) run esphome/living-room-voice.yaml
+
+flash-kitchen-test:
+	$(ESPHOME) run esphome/test-official-kitchen.yaml --device /dev/ttyACM1 --device /dev/ttyACM1
 
 ollama:
 	docker compose -f /home/jcgregorio/jcgregorio/homeassistant/docker-compose.yaml up -d ollama
