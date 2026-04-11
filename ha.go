@@ -176,7 +176,7 @@ func (h *HAClient) executeSetTimer(ctx context.Context, args string) error {
 	})
 }
 
-func (h *HAClient) executeAddToList(ctx context.Context, args string) error {
+func (h *HAClient) executeAddToList(_ context.Context, args string) error {
 	var p struct {
 		List string `json:"list"`
 		Item string `json:"item"`
@@ -184,16 +184,7 @@ func (h *HAClient) executeAddToList(ctx context.Context, args string) error {
 	if err := json.Unmarshal([]byte(args), &p); err != nil {
 		return fmt.Errorf("parse args: %w", err)
 	}
-	if p.List == "" {
-		p.List = "Shopping List"
-	}
-	if p.List == "Shopping List" {
-		return h.callService(ctx, "shopping_list", "add_item", map[string]any{"name": p.Item})
-	}
-	return h.callService(ctx, "todo", "add_item", map[string]any{
-		"entity_id": "todo." + sanitizeName(p.List),
-		"item":      p.Item,
-	})
+	return AddToList(p.List, p.Item)
 }
 
 func (h *HAClient) callService(ctx context.Context, domain, service string, body map[string]any) error {

@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuildTools_names(t *testing.T) {
-	tools := BuildTools(nil)
+	tools := BuildTools(nil, nil)
 	want := []string{"set_state", "set_timer", "add_to_list"}
 	if len(tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(tools), len(want))
@@ -23,7 +23,7 @@ func TestBuildTools_entityIDEnum(t *testing.T) {
 		{EntityID: "light.kitchen"},
 		{EntityID: "switch.fan"},
 	}
-	tools := BuildTools(entities)
+	tools := BuildTools(entities, nil)
 
 	// set_state is the first tool
 	params := tools[0].Function.Parameters
@@ -51,7 +51,7 @@ func TestBuildTools_entityIDEnum(t *testing.T) {
 
 func TestBuildTools_emptyEntities(t *testing.T) {
 	// Should not panic with zero entities
-	tools := BuildTools([]HAEntity{})
+	tools := BuildTools([]HAEntity{}, nil)
 	if len(tools) == 0 {
 		t.Fatal("expected tools even with no entities")
 	}

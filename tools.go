@@ -10,8 +10,9 @@ import (
 // BuildTools constructs the OpenAI tool schema from the list of HA entities.
 // The entity_id enum is populated dynamically so the LLM can only reference
 // entities that actually exist in the HA instance.
-func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
-	var entityNames, automationNames []any
+func BuildTools(entities []HAEntity, listNames []string) []openai.ChatCompletionToolParam {
+	entityNames := make([]any, 0)
+	var automationNames []any
 	for _, e := range entities {
 		name := strings.ToLower(e.FriendlyName())
 		domain, _, _ := strings.Cut(e.EntityID, ".")
@@ -20,6 +21,10 @@ func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
 		} else {
 			entityNames = append(entityNames, name)
 		}
+	}
+	listEnum := make([]any, len(listNames))
+	for i, n := range listNames {
+		listEnum[i] = n
 	}
 
 	tools := []openai.ChatCompletionToolParam{
@@ -90,7 +95,7 @@ func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
 		openai.ChatCompletionToolParam{
 			Function: shared.FunctionDefinitionParam{
 				Name:        "add_to_list",
-				Description: openai.String(`Add an item to a list. Use list "Shopping List" for groceries (default if not specified). Use the to-do list name for other lists.`),
+				Description: openai.String(`Add an item to a list. Use list "ShoppingList" for groceries (default if not specified).`),
 				Parameters: shared.FunctionParameters{
 					"type": "object",
 					"properties": map[string]any{
@@ -100,7 +105,8 @@ func BuildTools(entities []HAEntity) []openai.ChatCompletionToolParam {
 						},
 						"list": map[string]any{
 							"type":        "string",
-							"description": `The list to add to. Defaults to "Shopping List" if not specified.`,
+							"description": `The list to add to. Defaults to "ShoppingList" if not specified.`,
+							"enum":        listEnum,
 						},
 					},
 					"required": []string{"item"},

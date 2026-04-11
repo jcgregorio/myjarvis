@@ -41,8 +41,14 @@ func main() {
 
 	llm := NewLLMClient(cfg.OllamaURL, cfg.Model)
 
+	listNames, err := FetchLists()
+	if err != nil {
+		log.Printf("Failed to fetch lists (continuing without): %v", err)
+	}
+	fmt.Printf("Found %d lists.\n", len(listNames))
+
 	var toolsMu sync.RWMutex
-	tools := BuildTools(entities)
+	tools := BuildTools(entities, listNames)
 
 	stt := NewSTTClient(cfg.WhisperURL)
 
@@ -125,10 +131,14 @@ func main() {
 				log.Printf("entity refresh failed: %v", err)
 				continue
 			}
+			refreshedLists, err := FetchLists()
+			if err != nil {
+				log.Printf("list refresh failed: %v", err)
+			}
 			toolsMu.Lock()
-			tools = BuildTools(updated)
+			tools = BuildTools(updated, refreshedLists)
 			toolsMu.Unlock()
-			log.Printf("refreshed %d entities", len(updated))
+			log.Printf("refreshed %d entities, %d lists", len(updated), len(refreshedLists))
 		}
 	}()
 
@@ -190,7 +200,8 @@ func runTools() {
 		log.Fatalf("Failed to fetch HA entities: %v", err)
 	}
 
-	tools := BuildTools(entities)
+	listNames, _ := FetchLists()
+	tools := BuildTools(entities, listNames)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(tools); err != nil {

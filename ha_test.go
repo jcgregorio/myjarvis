@@ -135,61 +135,7 @@ func TestExecuteToolCall_setStateOn(t *testing.T) {
 	}
 }
 
-func TestExecuteToolCall_addToListShopping(t *testing.T) {
-	srv, ha := newFakeHAServer(t)
-	var gotPath string
-	var gotBody map[string]any
-	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		json.NewDecoder(r.Body).Decode(&gotBody)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("[]"))
-	})
-
-	// Default list (no list field) → shopping_list.add_item
-	err := ha.ExecuteToolCall(context.Background(), ToolCall{
-		Name: "add_to_list",
-		Args: `{"item":"milk"}`,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if gotPath != "/api/services/shopping_list/add_item" {
-		t.Errorf("path = %q, want /api/services/shopping_list/add_item", gotPath)
-	}
-	if gotBody["name"] != "milk" {
-		t.Errorf("name = %v, want milk", gotBody["name"])
-	}
-}
-
-func TestExecuteToolCall_addToListTodo(t *testing.T) {
-	srv, ha := newFakeHAServer(t)
-	var gotPath string
-	var gotBody map[string]any
-	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		json.NewDecoder(r.Body).Decode(&gotBody)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("[]"))
-	})
-
-	err := ha.ExecuteToolCall(context.Background(), ToolCall{
-		Name: "add_to_list",
-		Args: `{"list":"Chores","item":"vacuum living room"}`,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if gotPath != "/api/services/todo/add_item" {
-		t.Errorf("path = %q, want /api/services/todo/add_item", gotPath)
-	}
-	if gotBody["entity_id"] != "todo.chores" {
-		t.Errorf("entity_id = %v, want todo.chores", gotBody["entity_id"])
-	}
-	if gotBody["item"] != "vacuum living room" {
-		t.Errorf("item = %v, want 'vacuum living room'", gotBody["item"])
-	}
-}
+// Note: add_to_list tests are in lists_test.go since they now use file-based storage.
 
 func TestExecuteToolCall_setTimer(t *testing.T) {
 	srv, ha := newFakeHAServer(t)
