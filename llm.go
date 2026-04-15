@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"regexp"
+	"strings"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -12,6 +13,9 @@ import (
 // )(((tool_name {"arg": "val"})))
 // This regex extracts the tool name and JSON args from that format.
 var textToolCallRe = regexp.MustCompile(`\(\(\((\w+)\s+(\{.*?\})\)\)\)`)
+
+// thinkTagRe strips <think>...</think> blocks from qwen3 thinking mode output.
+var thinkTagRe = regexp.MustCompile(`(?s)<think>.*?</think>`)
 
 const systemPrompt = `You are a home assistant voice controller. When the user gives a command, call the appropriate tool to execute it. Only make tool calls — do not respond with prose unless no tool applies. If the command is ambiguous, make a reasonable assumption.`
 
@@ -28,6 +32,25 @@ func NewLLMClient(baseURL, model string) *LLMClient {
 		),
 		model: model,
 	}
+}
+
+// ChatPlain sends a system+user message to the LLM without tools and returns
+// the text response. Used for follow-up queries like vault search answers.
+func (l *LLMClient) ChatPlain(ctx context.Context, systemMsg, userMsg string) (string, error) {
+	completion, err := l.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Model: l.model,
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(systemMsg),
+			openai.UserMessage(userMsg),
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	content := completion.Choices[0].Message.Content
+	// Strip <think>...</think> blocks (qwen3 thinking mode)
+	content = thinkTagRe.ReplaceAllString(content, "")
+	return strings.TrimSpace(content), nil
 }
 
 // Chat sends the user input to the LLM with the tool list and returns either

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -50,9 +51,19 @@ func NewVoiceMQTTClient(ctx context.Context, brokerURL string, router *AudioRout
 			log.Printf("[mqtt] connection error: %v", err)
 		},
 		ClientConfig: paho.ClientConfig{
-			ClientID: "myjarvis",
+			ClientID: fmt.Sprintf("myjarvis-%d", os.Getpid()),
 			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
 				v.handleMessage,
+			},
+			OnClientError: func(err error) {
+				log.Printf("[mqtt] client error: %v", err)
+			},
+			OnServerDisconnect: func(d *paho.Disconnect) {
+				if d.Properties != nil {
+					log.Printf("[mqtt] server disconnect: code=%d reason=%s", d.ReasonCode, d.Properties.ReasonString)
+				} else {
+					log.Printf("[mqtt] server disconnect: code=%d", d.ReasonCode)
+				}
 			},
 		},
 	}

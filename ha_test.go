@@ -98,7 +98,7 @@ func TestExecuteToolCall_setStateOff(t *testing.T) {
 		w.Write([]byte("[]"))
 	})
 
-	err := ha.ExecuteToolCall(context.Background(), ToolCall{
+	_, err := ha.ExecuteToolCall(context.Background(), ToolCall{
 		Name: "set_state",
 		Args: `{"entity":"light.kitchen","state":"off"}`,
 	})
@@ -123,7 +123,7 @@ func TestExecuteToolCall_setStateOn(t *testing.T) {
 		w.Write([]byte("[]"))
 	})
 
-	err := ha.ExecuteToolCall(context.Background(), ToolCall{
+	_, err := ha.ExecuteToolCall(context.Background(), ToolCall{
 		Name: "set_state",
 		Args: `{"entity":"switch.fan","state":"on"}`,
 	})
@@ -146,7 +146,7 @@ func TestExecuteToolCall_setTimer(t *testing.T) {
 		w.Write([]byte("[]"))
 	})
 
-	err := ha.ExecuteToolCall(context.Background(), ToolCall{
+	_, err := ha.ExecuteToolCall(context.Background(), ToolCall{
 		Name: "set_timer",
 		Args: `{"name":"pasta","duration_seconds":600}`,
 	})
@@ -164,7 +164,7 @@ func TestExecuteToolCall_setTimer(t *testing.T) {
 func TestExecuteToolCall_invalidState(t *testing.T) {
 	srv, _ := newFakeHAServer(t)
 	ha := newFakeHAClientWithNames(srv)
-	err := ha.ExecuteToolCall(context.Background(), ToolCall{
+	_, err := ha.ExecuteToolCall(context.Background(), ToolCall{
 		Name: "set_state",
 		Args: `{"entity":"light.kitchen","state":"maybe"}`,
 	})

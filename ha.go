@@ -19,6 +19,7 @@ type HAClient struct {
 	http     *http.Client
 	mu       sync.RWMutex
 	nameToID map[string]string // friendly name → entity_id
+	vault    *VaultSearcher
 }
 
 func NewHAClient(baseURL, token string) *HAClient {
@@ -102,19 +103,35 @@ type ToolCall struct {
 	Args string
 }
 
-func (h *HAClient) ExecuteToolCall(ctx context.Context, tc ToolCall) error {
+// ExecuteToolCall dispatches a tool call. For vault tools (search_notes,
+// summarize_notes) it needs a VaultSearcher, which is set via SetVault.
+func (h *HAClient) ExecuteToolCall(ctx context.Context, tc ToolCall) (string, error) {
 	switch tc.Name {
 	case "set_state":
-		return h.executeSetState(ctx, tc.Args)
+		return "", h.executeSetState(ctx, tc.Args)
 	case "trigger_automation":
-		return h.executeTriggerAutomation(ctx, tc.Args)
+		return "", h.executeTriggerAutomation(ctx, tc.Args)
 	case "set_timer":
-		return h.executeSetTimer(ctx, tc.Args)
+		return "", h.executeSetTimer(ctx, tc.Args)
 	case "add_to_list":
-		return h.executeAddToList(ctx, tc.Args)
+		return "", h.executeAddToList(ctx, tc.Args)
+	case "search_notes":
+		if h.vault == nil {
+			return "", fmt.Errorf("vault not configured")
+		}
+		return h.vault.SearchNotes(ctx, tc.Args)
+	case "summarize_notes":
+		if h.vault == nil {
+			return "", fmt.Errorf("vault not configured")
+		}
+		return h.vault.SummarizeNotes(ctx, tc.Args)
 	default:
-		return fmt.Errorf("unknown tool: %s", tc.Name)
+		return "", fmt.Errorf("unknown tool: %s", tc.Name)
 	}
+}
+
+func (h *HAClient) SetVault(v *VaultSearcher) {
+	h.vault = v
 }
 
 func (h *HAClient) executeSetState(ctx context.Context, args string) error {

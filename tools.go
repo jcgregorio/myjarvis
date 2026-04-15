@@ -71,6 +71,45 @@ func BuildTools(entities []HAEntity, listNames []string) []openai.ChatCompletion
 		})
 	}
 
+	tools = append(tools,
+		openai.ChatCompletionToolParam{
+			Function: shared.FunctionDefinitionParam{
+				Name:        "search_notes",
+				Description: openai.String("Search personal notes to answer a question. Use this when the user asks about people, computers, cars, schedules, or anything that might be in their notes."),
+				Parameters: shared.FunctionParameters{
+					"type": "object",
+					"properties": map[string]any{
+						"query": map[string]any{
+							"type":        "string",
+							"description": "Search keywords to find relevant notes (e.g. 'austin computer' or 'telluride oil')",
+						},
+						"question": map[string]any{
+							"type":        "string",
+							"description": "The original question to answer using the found notes",
+						},
+					},
+					"required": []string{"query", "question"},
+				},
+			},
+		},
+		openai.ChatCompletionToolParam{
+			Function: shared.FunctionDefinitionParam{
+				Name:        "summarize_notes",
+				Description: openai.String("Summarize personal notes on a topic. Use this when the user asks for a summary or overview of something in their notes."),
+				Parameters: shared.FunctionParameters{
+					"type": "object",
+					"properties": map[string]any{
+						"query": map[string]any{
+							"type":        "string",
+							"description": "Search keywords to find the notes to summarize (e.g. 'goldmine prime' or 'shopping list')",
+						},
+					},
+					"required": []string{"query"},
+				},
+			},
+		},
+	)
+
 	return append(tools,
 		openai.ChatCompletionToolParam{
 			Function: shared.FunctionDefinitionParam{

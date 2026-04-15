@@ -41,6 +41,9 @@ func main() {
 
 	llm := NewLLMClient(cfg.OllamaURL, cfg.Model)
 
+	vault := NewVaultSearcher(obsidianRepo, llm)
+	ha.SetVault(vault)
+
 	listNames, err := FetchLists()
 	if err != nil {
 		log.Printf("Failed to fetch lists (continuing without): %v", err)
@@ -108,9 +111,13 @@ func main() {
 		hadError := false
 		for _, tc := range toolCalls {
 			log.Printf("[voice] %s: → %s(%s)", device, tc.Name, tc.Args)
-			if err := ha.ExecuteToolCall(context.Background(), tc); err != nil {
+			result, err := ha.ExecuteToolCall(context.Background(), tc)
+			if err != nil {
 				log.Printf("[voice] %s:   error: %v", device, err)
 				hadError = true
+			} else if result != "" {
+				log.Printf("[voice] %s:   result: %s", device, result)
+				// TODO: send result to TTS and play back
 			} else {
 				log.Printf("[voice] %s:   done", device)
 			}
@@ -182,8 +189,11 @@ func main() {
 				fmt.Println("  (skipped — dry-run)")
 				continue
 			}
-			if err := ha.ExecuteToolCall(context.Background(), tc); err != nil {
+			result, err := ha.ExecuteToolCall(context.Background(), tc)
+			if err != nil {
 				fmt.Printf("  error: %v\n", err)
+			} else if result != "" {
+				fmt.Printf("Jarvis: %s\n", result)
 			} else {
 				fmt.Printf("  done.\n")
 			}
