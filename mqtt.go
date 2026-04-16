@@ -116,6 +116,22 @@ func (v *VoiceMQTTClient) PublishLED(device, state string) {
 	}
 }
 
+// PublishStopPlayback tells the device to stop playing TTS audio.
+func (v *VoiceMQTTClient) PublishStopPlayback(device string) {
+	if v.cm == nil {
+		return
+	}
+	topic := fmt.Sprintf("jarvis/%s/stop_playback", device)
+	log.Printf("[mqtt] publishing stop_playback → %s", device)
+	if _, err := v.cm.Publish(context.Background(), &paho.Publish{
+		Topic:   topic,
+		QoS:     0,
+		Payload: []byte("stop"),
+	}); err != nil {
+		log.Printf("[mqtt] publish stop_playback error: %v", err)
+	}
+}
+
 // PublishStopStreaming tells the device to stop streaming audio.
 func (v *VoiceMQTTClient) PublishStopStreaming(device string) {
 	if v.cm == nil {

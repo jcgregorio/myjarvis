@@ -98,6 +98,13 @@ func main() {
 			return
 		}
 
+		if isStopCommand(transcript) {
+			log.Printf("[voice] %s: stop command received", device)
+			voiceMQTT.PublishStopPlayback(device)
+			voiceMQTT.PublishLED(device, "off")
+			return
+		}
+
 		toolsMu.RLock()
 		currentTools := tools
 		toolsMu.RUnlock()
@@ -313,6 +320,18 @@ func configFromEnv() Config {
 		cfg.AudioPort = 8085
 	}
 	return cfg
+}
+
+// isStopCommand returns true if the transcript is a stop/cancel command.
+func isStopCommand(transcript string) bool {
+	t := strings.ToLower(strings.TrimSpace(transcript))
+	switch t {
+	case "stop", "stop.", "cancel", "cancel.", "shut up", "shut up.",
+		"be quiet", "be quiet.", "quiet", "quiet.",
+		"never mind", "never mind.", "nevermind", "nevermind.":
+		return true
+	}
+	return false
 }
 
 // speakToDevice synthesizes text via Piper TTS and sends the audio URL to the device.

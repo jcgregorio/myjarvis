@@ -119,6 +119,12 @@ mqtt:
             id: voice_media_player
             media_url: !lambda "return x;"
             announcement: true
+    # Stop TTS playback (e.g. "hey jarvis, stop")
+    - topic: jarvis/${device_name}/stop_playback
+      then:
+        - media_player.stop:
+            id: voice_media_player
+        - light.turn_off: voice_assistant_leds
     # myjarvis VAD detected end of speech — stop streaming
     - topic: jarvis/${device_name}/stop_streaming
       then:
@@ -446,17 +452,27 @@ micro_wake_word:
     - model: hey_jarvis.json
       id: hey_jarvis
   on_wake_word_detected:
-    - mqtt.publish:
-        topic: jarvis/${device_name}/wake_detected
-        payload: "detected"
-    - light.turn_on:
-        id: voice_assistant_leds
-        effect: "Listening"
+    # If TTS is currently playing, stop it and don't start listening.
+    # This lets "hey jarvis" act as a stop command during playback.
     - if:
         condition:
-          switch.is_off: master_mute_switch
+          media_player.is_announcing: voice_media_player
         then:
-          - script.execute: start_listening
+          - media_player.stop:
+              id: voice_media_player
+          - light.turn_off: voice_assistant_leds
+        else:
+          - mqtt.publish:
+              topic: jarvis/${device_name}/wake_detected
+              payload: "detected"
+          - light.turn_on:
+              id: voice_assistant_leds
+              effect: "Listening"
+          - if:
+              condition:
+                switch.is_off: master_mute_switch
+              then:
+                - script.execute: start_listening
 
 # ---------------------------------------------------------------------------
 # Scripts

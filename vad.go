@@ -10,13 +10,17 @@ import (
 )
 
 // VADProcessor wraps Silero VAD for streaming audio detection.
-// It accumulates float32 PCM samples and periodically runs detection
-// on a sliding window to find speech end events.
+// It keeps a sliding window of recent audio and re-runs detection
+// on it periodically. The detector is reset before each Detect call
+// because it needs context within the window, and MinSilenceDurationMs
+// is enforced internally by the detector within a single Detect call.
+// After speech end is detected, the buffer is cleared so the next
+// speech cycle starts fresh.
 type VADProcessor struct {
 	detector *speech.Detector
 	mu       sync.Mutex
-	pcm      []float32 // accumulated mono float32 samples
-	spoken   bool      // true once speech has been detected in any window
+	pcm      []float32 // sliding window of mono float32 samples
+	spoken   bool      // true once speech has been detected
 }
 
 // NewVADProcessor creates a new Silero VAD processor.
@@ -25,7 +29,7 @@ func NewVADProcessor(modelPath string) (*VADProcessor, error) {
 		ModelPath:            modelPath,
 		SampleRate:           16000,
 		Threshold:            0.5,
-		MinSilenceDurationMs: 800,
+		MinSilenceDurationMs: 1500,
 		SpeechPadMs:          100,
 		LogLevel:             speech.LogLevelWarn,
 	})
@@ -46,7 +50,13 @@ func (v *VADProcessor) Reset() {
 
 // Append converts a 32-bit stereo PCM chunk to mono float32,
 // appends it, and checks for speech end. Returns true if speech
-// was detected and then silence of 800ms+ followed.
+// was detected and then silence of MinSilenceDurationMs followed.
+//
+// Detection runs on a sliding window (last 5 seconds) each cycle.
+// The detector is reset before each call so it processes the window
+// from scratch — this is necessary because the detector measures
+// silence duration within a single Detect call. After speech end
+// is detected, the buffer is cleared so the next cycle starts fresh.
 func (v *VADProcessor) Append(chunk []byte) bool {
 	mono := pcm32StereoToFloat32Mono(chunk)
 
@@ -62,8 +72,9 @@ func (v *VADProcessor) Append(chunk []byte) bool {
 	}
 
 	v.mu.Lock()
-	// Use a sliding window: last 3 seconds of audio
-	const windowSamples = 16000 * 3 // 3 seconds at 16kHz
+	// Sliding window: keep last 5 seconds (80000 samples at 16kHz).
+	// This must be long enough to contain speech + 1500ms silence.
+	const windowSamples = 80000
 	start := 0
 	if len(v.pcm) > windowSamples {
 		start = len(v.pcm) - windowSamples
@@ -72,6 +83,8 @@ func (v *VADProcessor) Append(chunk []byte) bool {
 	copy(buf, v.pcm[start:])
 	v.mu.Unlock()
 
+	// Reset and re-detect on the window so the detector can
+	// correctly measure silence duration from speech end.
 	v.detector.Reset()
 	segments, err := v.detector.Detect(buf)
 	if err != nil {
@@ -90,7 +103,12 @@ func (v *VADProcessor) Append(chunk []byte) bool {
 			spoken := v.spoken
 			v.mu.Unlock()
 			if spoken {
-				log.Printf("[vad] speech ended at %.2fs (window)", seg.SpeechEndAt)
+				log.Printf("[vad] speech ended at %.2fs", seg.SpeechEndAt)
+				// Clear buffer so the next speech cycle starts fresh
+				v.mu.Lock()
+				v.pcm = v.pcm[:0]
+				v.spoken = false
+				v.mu.Unlock()
 				return true
 			}
 		}
