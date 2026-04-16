@@ -38,8 +38,11 @@ func (s *STTClient) Transcribe(rawPCM []byte) (string, error) {
 	if _, err := part.Write(wav); err != nil {
 		return "", fmt.Errorf("write wav: %w", err)
 	}
-	if err := w.WriteField("model", "base"); err != nil {
+	if err := w.WriteField("model", "small"); err != nil {
 		return "", fmt.Errorf("write model field: %w", err)
+	}
+	if err := w.WriteField("language", "en"); err != nil {
+		return "", fmt.Errorf("write language field: %w", err)
 	}
 	if err := w.Close(); err != nil {
 		return "", fmt.Errorf("close multipart: %w", err)
