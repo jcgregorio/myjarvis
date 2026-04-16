@@ -55,6 +55,13 @@ func main() {
 
 	stt := NewSTTClient(cfg.WhisperURL)
 
+	tts := NewTTSClient(cfg.PiperAddr)
+
+	audioSrv, err := NewAudioServer(cfg.AudioPort)
+	if err != nil {
+		log.Fatalf("Failed to start audio server: %v", err)
+	}
+
 	// Initialize Silero VAD
 	vad, err := NewVADProcessor(cfg.VADModelPath)
 	if err != nil {
@@ -117,7 +124,7 @@ func main() {
 				hadError = true
 			} else if result != "" {
 				log.Printf("[voice] %s:   result: %s", device, result)
-				// TODO: send result to TTS and play back
+				speakToDevice(device, result, tts, audioSrv, voiceMQTT)
 			} else {
 				log.Printf("[voice] %s:   done", device)
 			}
@@ -258,17 +265,25 @@ type Config struct {
 	MQTTBroker   string
 	WhisperURL   string
 	VADModelPath string
+	PiperAddr    string
+	AudioPort    int
 }
 
 func configFromEnv() Config {
+	audioPort := 0
+	if v := os.Getenv("AUDIO_PORT"); v != "" {
+		fmt.Sscanf(v, "%d", &audioPort)
+	}
 	cfg := Config{
-		HAURL:     os.Getenv("HA_URL"),
-		HAToken:   os.Getenv("HA_TOKEN"),
-		OllamaURL:  os.Getenv("OLLAMA_URL"),
-		Model:      os.Getenv("MODEL"),
+		HAURL:        os.Getenv("HA_URL"),
+		HAToken:      os.Getenv("HA_TOKEN"),
+		OllamaURL:    os.Getenv("OLLAMA_URL"),
+		Model:        os.Getenv("MODEL"),
 		MQTTBroker:   os.Getenv("MQTT_BROKER"),
 		WhisperURL:   os.Getenv("WHISPER_URL"),
 		VADModelPath: os.Getenv("VAD_MODEL_PATH"),
+		PiperAddr:    os.Getenv("PIPER_ADDR"),
+		AudioPort:    audioPort,
 	}
 	if cfg.HAURL == "" {
 		log.Fatal("HA_URL environment variable is required (e.g. http://homeassistant.local:8123)")
@@ -291,5 +306,29 @@ func configFromEnv() Config {
 	if cfg.VADModelPath == "" {
 		cfg.VADModelPath = "silero_vad.onnx"
 	}
+	if cfg.PiperAddr == "" {
+		cfg.PiperAddr = "localhost:10200"
+	}
+	if cfg.AudioPort == 0 {
+		cfg.AudioPort = 8085
+	}
 	return cfg
+}
+
+// speakToDevice synthesizes text via Piper TTS and sends the audio URL to the device.
+func speakToDevice(device, text string, tts *TTSClient, audioSrv *AudioServer, mqtt *VoiceMQTTClient) {
+	wav, err := tts.Synthesize(text)
+	if err != nil {
+		log.Printf("[tts] synthesize error: %v", err)
+		return
+	}
+	url, err := audioSrv.Store(wav)
+	if err != nil {
+		log.Printf("[tts] store error: %v", err)
+		return
+	}
+	log.Printf("[tts] %s: playing %s", device, url)
+	if err := mqtt.PublishTTSURL(device, url); err != nil {
+		log.Printf("[tts] publish error: %v", err)
+	}
 }
