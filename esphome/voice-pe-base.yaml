@@ -257,6 +257,7 @@ sensor:
     on_anticlockwise:
       - media_player.volume_down: voice_media_player
 
+
 # ---------------------------------------------------------------------------
 # Microphone
 # 16kHz, 32-bit (I2S standard), stereo from XMOS (post-AEC/AGC)
