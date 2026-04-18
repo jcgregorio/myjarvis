@@ -7,7 +7,7 @@ import (
 
 func TestBuildTools_names(t *testing.T) {
 	tools := BuildTools(nil, nil)
-	want := []string{"set_state", "search_notes", "summarize_notes", "set_timer", "add_to_list"}
+	want := []string{"set_state", "search_notes", "summarize_notes", "set_timer", "check_list", "check_off_item", "uncheck_item", "clean_lists", "add_to_list"}
 	if len(tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(tools), len(want))
 	}

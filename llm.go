@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"regexp"
 	"strings"
 
@@ -14,8 +15,16 @@ import (
 // This regex extracts the tool name and JSON args from that format.
 var textToolCallRe = regexp.MustCompile(`\(\(\((\w+)\s+(\{.*?\})\)\)\)`)
 
-// thinkTagRe strips <think>...</think> blocks from qwen3 thinking mode output.
-var thinkTagRe = regexp.MustCompile(`(?s)<think>.*?</think>`)
+// thinkTagRe matches <think>...</think> blocks from qwen3 thinking mode output.
+var thinkTagRe = regexp.MustCompile(`(?s)<think>(.*?)</think>`)
+
+// stripThinkTags logs and removes <think> blocks from LLM output.
+func stripThinkTags(content string) string {
+	for _, match := range thinkTagRe.FindAllStringSubmatch(content, -1) {
+		log.Printf("[llm] <think>: %s", strings.TrimSpace(match[1]))
+	}
+	return thinkTagRe.ReplaceAllString(content, "")
+}
 
 const systemPrompt = `You are a home assistant voice controller. When the user gives a command, call the appropriate tool to execute it. Only make tool calls — do not respond with prose unless no tool applies. If the command is ambiguous, make a reasonable assumption.`
 
@@ -48,8 +57,7 @@ func (l *LLMClient) ChatPlain(ctx context.Context, systemMsg, userMsg string) (s
 		return "", err
 	}
 	content := completion.Choices[0].Message.Content
-	// Strip <think>...</think> blocks (qwen3 thinking mode)
-	content = thinkTagRe.ReplaceAllString(content, "")
+	content = stripThinkTags(content)
 	return strings.TrimSpace(content), nil
 }
 
@@ -71,10 +79,11 @@ func (l *LLMClient) Chat(ctx context.Context, userInput string, tools []openai.C
 	msg := completion.Choices[0].Message
 
 	if len(msg.ToolCalls) == 0 {
+		content := stripThinkTags(msg.Content)
 		// Fallback: parse text-format tool calls (qwen2.5 quirk)
-		matches := textToolCallRe.FindAllStringSubmatch(msg.Content, -1)
+		matches := textToolCallRe.FindAllStringSubmatch(content, -1)
 		if len(matches) == 0 {
-			return nil, msg.Content, nil
+			return nil, content, nil
 		}
 		var calls []ToolCall
 		for _, m := range matches {

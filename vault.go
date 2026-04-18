@@ -78,6 +78,11 @@ func (v *VaultSearcher) grepVault(query string) (map[string]string, error) {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".md") {
 			return err
 		}
+		// Skip the Lists directory — lists have their own check_list tool
+		rel, _ := filepath.Rel(v.vaultDir, path)
+		if strings.HasPrefix(rel, "Lists/") || strings.HasPrefix(rel, "Lists\\") {
+			return nil
+		}
 
 		content, err := os.ReadFile(path)
 		if err != nil {

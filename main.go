@@ -299,7 +299,7 @@ func configFromEnv() Config {
 		log.Fatal("HA_TOKEN environment variable is required (long-lived access token from HA profile)")
 	}
 	if cfg.OllamaURL == "" {
-		cfg.OllamaURL = "http://localhost:11434/v1"
+		cfg.OllamaURL = "http://192.168.1.145:11434/v1"
 	}
 	if cfg.Model == "" {
 		cfg.Model = "qwen2.5:7b"

@@ -113,6 +113,14 @@ func (h *HAClient) ExecuteToolCall(ctx context.Context, tc ToolCall) (string, er
 		return "", h.executeTriggerAutomation(ctx, tc.Args)
 	case "set_timer":
 		return "", h.executeSetTimer(ctx, tc.Args)
+	case "check_list":
+		return h.executeCheckList(ctx, tc.Args)
+	case "check_off_item":
+		return "", h.executeCheckOffItem(ctx, tc.Args)
+	case "uncheck_item":
+		return "", h.executeUncheckItem(ctx, tc.Args)
+	case "clean_lists":
+		return "", CleanLists()
 	case "add_to_list":
 		return "", h.executeAddToList(ctx, tc.Args)
 	case "search_notes":
@@ -191,6 +199,49 @@ func (h *HAClient) executeSetTimer(ctx context.Context, args string) error {
 		"entity_id": "timer." + sanitizeName(p.Name),
 		"duration":  fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds),
 	})
+}
+
+func (h *HAClient) executeCheckList(_ context.Context, args string) (string, error) {
+	var p struct {
+		List string `json:"list"`
+		Item string `json:"item"`
+	}
+	if err := json.Unmarshal([]byte(args), &p); err != nil {
+		return "", fmt.Errorf("parse args: %w", err)
+	}
+	contents, err := ReadList(p.List)
+	if err != nil {
+		return "", err
+	}
+	if p.Item != "" {
+		if strings.Contains(strings.ToLower(contents), strings.ToLower(p.Item)) {
+			return fmt.Sprintf("Yes, %s is on the %s list.", p.Item, p.List), nil
+		}
+		return fmt.Sprintf("No, %s is not on the %s list.", p.Item, p.List), nil
+	}
+	return contents, nil
+}
+
+func (h *HAClient) executeCheckOffItem(_ context.Context, args string) error {
+	var p struct {
+		List string `json:"list"`
+		Item string `json:"item"`
+	}
+	if err := json.Unmarshal([]byte(args), &p); err != nil {
+		return fmt.Errorf("parse args: %w", err)
+	}
+	return CheckOffItem(p.List, p.Item)
+}
+
+func (h *HAClient) executeUncheckItem(_ context.Context, args string) error {
+	var p struct {
+		List string `json:"list"`
+		Item string `json:"item"`
+	}
+	if err := json.Unmarshal([]byte(args), &p); err != nil {
+		return fmt.Errorf("parse args: %w", err)
+	}
+	return UncheckItem(p.List, p.Item)
 }
 
 func (h *HAClient) executeAddToList(_ context.Context, args string) error {

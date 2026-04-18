@@ -133,6 +133,79 @@ func BuildTools(entities []HAEntity, listNames []string) []openai.ChatCompletion
 		},
 		openai.ChatCompletionToolParam{
 			Function: shared.FunctionDefinitionParam{
+				Name:        "check_list",
+				Description: openai.String("Read the items on a list, or check if a specific item is on a list. Only returns unchecked (active) items."),
+				Parameters: shared.FunctionParameters{
+					"type": "object",
+					"properties": map[string]any{
+						"list": map[string]any{
+							"type":        "string",
+							"description": "The list to check",
+							"enum":        listEnum,
+						},
+						"item": map[string]any{
+							"type":        "string",
+							"description": "Optional: a specific item to check for. If omitted, returns all items.",
+						},
+					},
+					"required": []string{"list"},
+				},
+			},
+		},
+		openai.ChatCompletionToolParam{
+			Function: shared.FunctionDefinitionParam{
+				Name:        "check_off_item",
+				Description: openai.String("Mark an item as done on a list. Use this when the user says they got something, completed something, or wants to check off an item."),
+				Parameters: shared.FunctionParameters{
+					"type": "object",
+					"properties": map[string]any{
+						"list": map[string]any{
+							"type":        "string",
+							"description": "The list the item is on",
+							"enum":        listEnum,
+						},
+						"item": map[string]any{
+							"type":        "string",
+							"description": "The item to check off",
+						},
+					},
+					"required": []string{"list", "item"},
+				},
+			},
+		},
+		openai.ChatCompletionToolParam{
+			Function: shared.FunctionDefinitionParam{
+				Name:        "uncheck_item",
+				Description: openai.String("Uncheck a completed item on a list, marking it as active again."),
+				Parameters: shared.FunctionParameters{
+					"type": "object",
+					"properties": map[string]any{
+						"list": map[string]any{
+							"type":        "string",
+							"description": "The list the item is on",
+							"enum":        listEnum,
+						},
+						"item": map[string]any{
+							"type":        "string",
+							"description": "The item to uncheck",
+						},
+					},
+					"required": []string{"list", "item"},
+				},
+			},
+		},
+		openai.ChatCompletionToolParam{
+			Function: shared.FunctionDefinitionParam{
+				Name:        "clean_lists",
+				Description: openai.String("Remove all checked-off (completed) items from all lists. Use this when the user says to clean up the lists."),
+				Parameters: shared.FunctionParameters{
+					"type": "object",
+					"properties": map[string]any{},
+				},
+			},
+		},
+		openai.ChatCompletionToolParam{
+			Function: shared.FunctionDefinitionParam{
 				Name:        "add_to_list",
 				Description: openai.String(`Add an item to a list. Use list "ShoppingList" for groceries (default if not specified).`),
 				Parameters: shared.FunctionParameters{
