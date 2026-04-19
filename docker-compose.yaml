@@ -1,0 +1,20 @@
+services:
+  myjarvis:
+    build: .
+    container_name: myjarvis
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - /home/jcgregorio/jcgregorio/myjarvis-secret/myjarvis.env
+    environment:
+      - OLLAMA_URL=http://192.168.1.145:11434/v1
+      - WHISPER_URL=http://localhost:8000
+      - MODEL=llama3.1:8b-16k
+      - MQTT_BROKER=mqtt://localhost:1883
+      - PIPER_ADDR=localhost:10200
+      - AUDIO_PORT=8085
+      - OBSIDIAN_REPO=/obsidian
+    volumes:
+      - /home/jcgregorio/obsidian:/obsidian
+      - /home/jcgregorio/.gitconfig:/root/.gitconfig:ro
+      - /home/jcgregorio/.config/gh:/root/.config/gh:ro

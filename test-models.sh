@@ -1,26 +1,21 @@
 #!/bin/bash
 #
-# Test multiple Ollama models with OpenCode.
-# Pulls models, creates context-boosted variants, runs a prompt, captures results,
-# and produces a summary report.
+# Test Ollama models for myjarvis tool-calling accuracy and speed.
+# Sends voice-assistant-style prompts via the OpenAI-compatible API
+# with the myjarvis tool schema and measures response time + correctness.
 
 set -uo pipefail
 
 REMOTE="192.168.1.145"
-PROMPT='The project has related design notes in an obsidian vault at ~/obsidian/HA. Update the project documentation to reference relevant design files.'
-CONFIG="$HOME/.opencode.json"
-TARGET="OpenCode.md"
-BACKUP="${TARGET}.bak"
+API="http://$REMOTE:11434/v1/chat/completions"
 RESULTS_DIR="test-results"
 REPORT="$RESULTS_DIR/report.txt"
-NUM_CTX=40960  # max context that fits 100% GPU with the largest models
 
-cd ~/myjarvis
-
-# Models to test — all fit comfortably in 16GB VRAM at Q4
+# Models to test — all should fit in 16GB VRAM at Q4
 declare -a MODELS=(
   "qwen3:8b"
   "qwen3:4b"
+  "qwen3:14b-64k"
   "qwen2.5-coder:7b"
   "gemma3:4b"
   "gemma3:12b"
@@ -31,14 +26,134 @@ declare -a MODELS=(
   "phi4-mini"
 )
 
+# Tool schema
+TOOLS='[
+  {
+    "type": "function",
+    "function": {
+      "name": "add_to_list",
+      "description": "Add an item to a list. Use list \"ShoppingList\" for groceries (default if not specified).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "item": {"type": "string", "description": "The item or task to add"},
+          "list": {"type": "string", "description": "The list to add to.", "enum": ["ShoppingList", "TODO", "Chores"]}
+        },
+        "required": ["item"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "check_off_item",
+      "description": "Mark an item as done on a list. Use this when the user says they got something, completed something, or wants to check off an item.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "list": {"type": "string", "description": "The list the item is on", "enum": ["ShoppingList", "TODO", "Chores"]},
+          "item": {"type": "string", "description": "The item to check off"}
+        },
+        "required": ["list", "item"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_state",
+      "description": "Turn a Home Assistant entity on or off",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "entity": {"type": "string", "description": "The name of the entity to control", "enum": ["kitchen lights", "living room lights", "bedroom fan", "porch light"]},
+          "state": {"type": "string", "enum": ["on", "off"]}
+        },
+        "required": ["entity", "state"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_notes",
+      "description": "Search personal notes to answer a question. Use this when the user asks about people, computers, cars, schedules, or anything that might be in their notes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search keywords to find relevant notes (e.g. austin computer or telluride oil)"},
+          "question": {"type": "string", "description": "The original question to answer using the found notes"}
+        },
+        "required": ["query", "question"]
+      }
+    }
+  }
+]'
+
+SYSTEM_PROMPT="You are a home assistant voice controller. When the user gives a command, call the appropriate tool to execute it. Only make tool calls — do not respond with prose unless no tool applies. If the command is ambiguous, make a reasonable assumption."
+
+# Test cases: prompt | expected_tool | expected_args_fragment
+declare -a TEST_PROMPTS=(
+  "Add milk to the shopping list"
+  "Check off peanut butter from the shopping list"
+  "Add vacuum the garage to the chores list"
+  "Turn off the kitchen lights"
+  "Which CPU is in Austin's computer"
+)
+declare -a EXPECTED_TOOLS=(
+  "add_to_list"
+  "check_off_item"
+  "add_to_list"
+  "set_state"
+  "search_notes"
+)
+declare -a EXPECTED_ARGS=(
+  '"milk"'
+  '"peanut butter"'
+  '"vacuum'
+  '"off"'
+  '"austin'
+)
+
 rm -rf "$RESULTS_DIR"
 mkdir -p "$RESULTS_DIR"
-cp "$TARGET" "$BACKUP"
 
-# Save original config
-cp "$CONFIG" "${CONFIG}.bak" 2>/dev/null || true
+# ─── Helper: call the API ──────────────────────────────────────────────────
 
-# ─── Phase 1: Pull all models ───────────────────────────────────────────────
+call_model() {
+  local model="$1"
+  local prompt="$2"
+  local payload
+  payload=$(python3 -c "
+import json, sys
+print(json.dumps({
+    'model': '$model',
+    'messages': [
+        {'role': 'system', 'content': '''$SYSTEM_PROMPT'''},
+        {'role': 'user', 'content': '''$prompt'''}
+    ],
+    'tools': $TOOLS,
+    'stream': False
+}))
+")
+  curl -s --max-time 120 "$API" \
+    -H "Content-Type: application/json" \
+    -d "$payload" 2>&1
+}
+
+# ─── Helper: stop loaded model ──────────────────────────────────────────────
+
+stop_loaded_model() {
+  local running
+  running=$(ssh "$REMOTE" "ollama ps 2>/dev/null | tail -n +2 | awk '{print \$1}'" 2>/dev/null || true)
+  if [[ -n "$running" ]]; then
+    curl -s "http://$REMOTE:11434/api/generate" \
+      -d "{\"model\": \"$running\", \"keep_alive\": 0}" > /dev/null 2>&1
+    sleep 2
+  fi
+}
+
+# ─── Phase 1: Pull models ──────────────────────────────────────────────────
 
 echo "============================================"
 echo "  Phase 1: Pulling models"
@@ -47,7 +162,7 @@ echo ""
 
 for model in "${MODELS[@]}"; do
   echo -n ">>> $model ... "
-  if ssh "$REMOTE" "ollama pull $model" >/dev/null 2>&1; then
+  if curl -s "http://$REMOTE:11434/api/pull" -d "{\"name\": \"$model\", \"stream\": false}" | grep -q '"status":"success"'; then
     echo "OK"
   else
     echo "FAILED (will skip)"
@@ -56,142 +171,113 @@ done
 
 echo ""
 
-# ─── Phase 2: Test each model ───────────────────────────────────────────────
+# ─── Phase 2: Test each model ──────────────────────────────────────────────
 
 echo "============================================"
 echo "  Phase 2: Running tests"
 echo "============================================"
 echo ""
 
-declare -A RESULTS    # pass/no_changes/error
-declare -A CONTEXTS   # context size
-declare -A PROCESSORS # CPU/GPU split
-declare -A DURATIONS  # wall clock seconds
-declare -A DIFF_FILES # path to diff
-declare -A ERRORS     # error messages
-
-stop_loaded_model() {
-  local running
-  running=$(ssh "$REMOTE" "ollama ps 2>/dev/null | tail -n +2 | awk '{print \$1}'" 2>/dev/null || true)
-  if [[ -n "$running" ]]; then
-    ssh "$REMOTE" "ollama stop $running" 2>/dev/null || true
-    sleep 3
-  fi
-}
-
 for model in "${MODELS[@]}"; do
   echo "──────────────────────────────────────────"
   echo "  Testing: $model"
   echo "──────────────────────────────────────────"
 
-  # Restore OpenCode.md
-  cp "$BACKUP" "$TARGET"
-
-  # Stop any loaded model
+  # Stop any loaded model to get clean VRAM
   stop_loaded_model
 
-  # Pre-warm model with boosted context via the API options field
-  echo ">>> Loading $model with num_ctx=$NUM_CTX ..."
-  warmup_out=$(curl -s --max-time 120 "http://$REMOTE:11434/api/generate" \
-    -d "{\"model\": \"$model\", \"prompt\": \"hi\", \"stream\": false, \"options\": {\"num_ctx\": $NUM_CTX}}" 2>&1)
+  # Warm up: force model load with a trivial prompt (no tools)
+  echo ">>> Loading $model ..."
+  warmup_start=$(date +%s%3N)
+  warmup_out=$(curl -s --max-time 180 "http://$REMOTE:11434/api/generate" \
+    -d "{\"model\": \"$model\", \"prompt\": \"Reply with just the word hello.\", \"stream\": false}" 2>&1)
+  warmup_end=$(date +%s%3N)
+  warmup_ms=$(( warmup_end - warmup_start ))
 
   if ! echo "$warmup_out" | python3 -c "import json,sys; json.load(sys.stdin)['response']" >/dev/null 2>&1; then
-    echo "    Warm-up failed: $(echo "$warmup_out" | head -c 200)"
-    RESULTS["$model"]="error"
-    ERRORS["$model"]="Warm-up failed"
-    CONTEXTS["$model"]="n/a"
-    PROCESSORS["$model"]="n/a"
-    DURATIONS["$model"]="n/a"
-    DIFF_FILES["$model"]=""
+    echo "    Warm-up failed, skipping"
+    echo "$model | SKIP | warm-up failed" >> "$RESULTS_DIR/summary.csv"
     echo ""
     continue
   fi
+  echo "    Loaded in ${warmup_ms}ms"
 
-  # Capture model load info
-  ps_out=$(ssh "$REMOTE" "ollama ps" 2>/dev/null)
-  echo "$ps_out"
-  ctx=$(echo "$ps_out" | tail -n +2 | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+$/ && $i > 1000) print $i}' | head -1)
-  proc=$(echo "$ps_out" | tail -n +2 | awk '{for(i=1;i<=NF;i++) if($i ~ /GPU/) print $i}' | head -1)
-  CONTEXTS["$model"]="${ctx:-unknown}"
-  PROCESSORS["$model"]="${proc:-unknown}"
+  # Run each test case
+  for i in "${!TEST_PROMPTS[@]}"; do
+    prompt="${TEST_PROMPTS[$i]}"
+    expected_tool="${EXPECTED_TOOLS[$i]}"
+    expected_arg="${EXPECTED_ARGS[$i]}"
 
-  # Determine the model ID as seen by OpenCode via /v1/models
-  model_id=$(curl -s "http://$REMOTE:11434/v1/models" | \
-    python3 -c "
-import json, sys
-data = json.load(sys.stdin)['data']
-target = '${model}'
-# exact match first
-for m in data:
-    if m['id'] == target:
-        print(m['id'])
-        sys.exit(0)
-# partial match
-for m in data:
-    if target.replace(':','-') in m['id'].replace(':','-'):
-        print(m['id'])
-        sys.exit(0)
-print(target)
-" 2>/dev/null)
+    echo ""
+    echo "  Test $((i+1)): \"$prompt\""
+    echo "    Expected: $expected_tool containing $expected_arg"
 
-  echo "    OpenCode model ID: local.$model_id"
+    start_ms=$(date +%s%3N)
+    response=$(call_model "$model" "$prompt")
+    end_ms=$(date +%s%3N)
+    elapsed_ms=$(( end_ms - start_ms ))
 
-  # Update opencode config
-  cat > "$CONFIG" <<EOF
-{
-  "data": {},
-  "tui": { "theme": "opencode" },
-  "shell": {},
-  "agents": {
-    "coder": { "model": "local.$model_id" },
-    "task": { "model": "local.$model_id" }
-  }
-}
-EOF
+    # Save raw response
+    echo "$response" > "$RESULTS_DIR/${model//:/_}_test$((i+1)).json"
 
-  # Run OpenCode with timing
-  echo ""
-  echo ">>> Running OpenCode ..."
-  start_time=$(date +%s)
+    # Parse response
+    result=$(python3 -c "
+import json, sys, re
 
-  oc_output=$( opencode -p "$PROMPT" -c ~/myjarvis -q 2>&1 ) || true
+raw = sys.stdin.read()
+try:
+    data = json.loads(raw)
+except:
+    print('ERROR|parse_failed|' + raw[:200])
+    sys.exit(0)
 
-  end_time=$(date +%s)
-  elapsed=$(( end_time - start_time ))
-  DURATIONS["$model"]="${elapsed}s"
+msg = data.get('choices', [{}])[0].get('message', {})
+tool_calls = msg.get('tool_calls', [])
+content = msg.get('content', '')
 
-  # Save full output
-  echo "$oc_output" > "$RESULTS_DIR/${model//:/_}_output.txt"
+# Strip think tags
+content = re.sub(r'(?s)<think>.*?</think>', '', content).strip()
 
-  # Check for errors in output
-  if echo "$oc_output" | grep -qi "error:\|failed:\|400 Bad Request\|500 Internal"; then
-    errmsg=$(echo "$oc_output" | grep -i "error:\|failed:\|400\|500" | head -1 | sed 's/^[[:space:]]*//')
-    RESULTS["$model"]="error"
-    ERRORS["$model"]="$errmsg"
-    DIFF_FILES["$model"]=""
-    echo "    ERROR: $errmsg"
-  else
-    # Generate diff
-    diff_file="$RESULTS_DIR/${model//:/_}_diff.txt"
-    if diff -u "$BACKUP" "$TARGET" > "$diff_file" 2>&1; then
-      RESULTS["$model"]="no_changes"
-      ERRORS["$model"]="No edits made"
-      DIFF_FILES["$model"]=""
-      echo "    No changes to $TARGET"
-    else
-      RESULTS["$model"]="pass"
-      ERRORS["$model"]=""
-      DIFF_FILES["$model"]="$diff_file"
-      echo "    Changes detected:"
-      echo ""
-      cat "$diff_file"
+if tool_calls:
+    tc = tool_calls[0]
+    name = tc.get('function', {}).get('name', '')
+    args = tc.get('function', {}).get('arguments', '')
+    print(f'TOOL|{name}|{args}')
+elif content:
+    # Check for text-format tool calls (qwen2.5 quirk)
+    m = re.search(r'\(\(\((\w+)\s+(\{.*?\})\)\)\)', content)
+    if m:
+        print(f'TOOL|{m.group(1)}|{m.group(2)}')
+    else:
+        print(f'TEXT|no_tool_call|{content[:200]}')
+else:
+    print('EMPTY|no_response|')
+" <<< "$response")
+
+    result_type=$(echo "$result" | cut -d'|' -f1)
+    result_tool=$(echo "$result" | cut -d'|' -f2)
+    result_detail=$(echo "$result" | cut -d'|' -f3-)
+
+    # Grade
+    grade="FAIL"
+    if [[ "$result_type" == "TOOL" && "$result_tool" == "$expected_tool" ]]; then
+      if echo "$result_detail" | grep -qi "$expected_arg"; then
+        grade="PASS"
+      else
+        grade="WRONG_ARGS"
+      fi
     fi
-  fi
+
+    echo "    Result:   $result_type | $result_tool | $result_detail"
+    echo "    Grade:    $grade (${elapsed_ms}ms)"
+
+    echo "$model|test$((i+1))|$prompt|$expected_tool|$expected_arg|$result_type|$result_tool|$result_detail|$grade|${elapsed_ms}ms" >> "$RESULTS_DIR/summary.csv"
+  done
 
   echo ""
 done
 
-# ─── Phase 3: Report ────────────────────────────────────────────────────────
+# ─── Phase 3: Report ───────────────────────────────────────────────────────
 
 echo ""
 echo "============================================"
@@ -201,81 +287,50 @@ echo ""
 
 {
   echo "Model Test Report — $(date)"
-  echo "Prompt: $PROMPT"
   echo ""
-  printf "%-24s %-12s %-12s %-10s %-8s %s\n" \
-    "MODEL" "RESULT" "PROCESSOR" "CONTEXT" "TIME" "NOTES"
-  printf "%-24s %-12s %-12s %-10s %-8s %s\n" \
-    "------------------------" "------------" "------------" "----------" "--------" "-----"
+  printf "%-24s  %-6s  %-6s  %-6s  %-6s  %-6s  %-8s  %-8s  %-8s  %-8s  %-8s\n" \
+    "MODEL" "T1" "T2" "T3" "T4" "T5" "T1ms" "T2ms" "T3ms" "T4ms" "T5ms"
+  printf "%-24s  %-6s  %-6s  %-6s  %-6s  %-6s  %-8s  %-8s  %-8s  %-8s  %-8s\n" \
+    "------------------------" "------" "------" "------" "------" "------" "--------" "--------" "--------" "--------" "--------"
 
   for model in "${MODELS[@]}"; do
-    result="${RESULTS[$model]:-untested}"
-    proc="${PROCESSORS[$model]:-?}"
-    ctx="${CONTEXTS[$model]:-?}"
-    dur="${DURATIONS[$model]:-?}"
-    err="${ERRORS[$model]:-}"
-
-    notes=""
-    if [[ "$result" == "pass" ]]; then
-      diff_file="${DIFF_FILES[$model]}"
-      if [[ -n "$diff_file" && -f "$diff_file" ]]; then
-        added=$(grep -c '^+[^+]' "$diff_file" 2>/dev/null || echo 0)
-        removed=$(grep -c '^-[^-]' "$diff_file" 2>/dev/null || echo 0)
-        notes="+${added}/-${removed} lines"
+    grades=()
+    times=()
+    for t in 1 2 3 4 5; do
+      line=$(grep "^${model}|test${t}|" "$RESULTS_DIR/summary.csv" 2>/dev/null || echo "")
+      if [[ -n "$line" ]]; then
+        grade=$(echo "$line" | cut -d'|' -f9)
+        ms=$(echo "$line" | cut -d'|' -f10)
+        grades+=("$grade")
+        times+=("$ms")
+      else
+        grades+=("SKIP")
+        times+=("—")
       fi
-    elif [[ -n "$err" ]]; then
-      notes="$err"
-    fi
-
-    printf "%-24s %-12s %-12s %-10s %-8s %s\n" \
-      "$model" "$result" "$proc" "$ctx" "$dur" "${notes:0:80}"
+    done
+    printf "%-24s  %-6s  %-6s  %-6s  %-6s  %-6s  %-8s  %-8s  %-8s  %-8s  %-8s\n" \
+      "$model" "${grades[0]}" "${grades[1]}" "${grades[2]}" "${grades[3]}" "${grades[4]}" \
+      "${times[0]}" "${times[1]}" "${times[2]}" "${times[3]}" "${times[4]}"
   done
 
   echo ""
-  echo "── Detailed diffs for passing models ──"
+  echo "Tests:"
+  echo "  T1: \"Add milk to the shopping list\"           → add_to_list(milk)"
+  echo "  T2: \"Check off peanut butter from the list\"   → check_off_item(peanut butter)"
+  echo "  T3: \"Add vacuum the garage to chores\"         → add_to_list(vacuum..., Chores)"
+  echo "  T4: \"Turn off the kitchen lights\"             → set_state(kitchen lights, off)"
+  echo "  T5: \"Which CPU is in Austin's computer\"       → search_notes(austin...)"
   echo ""
-
-  for model in "${MODELS[@]}"; do
-    if [[ "${RESULTS[$model]:-}" == "pass" ]]; then
-      echo "━━━ $model ━━━"
-      cat "${DIFF_FILES[$model]}"
-      echo ""
-    fi
-  done
+  echo "Grades: PASS = correct tool + args, WRONG_ARGS = right tool wrong args,"
+  echo "        FAIL = wrong tool or no tool call, SKIP = model failed to load"
 
 } | tee "$REPORT"
 
-# ─── Cleanup ─────────────────────────────────────────────────────────────────
+# ─── Cleanup ────────────────────────────────────────────────────────────────
 
-# Restore OpenCode.md
-cp "$BACKUP" "$TARGET"
-rm -f "$BACKUP"
-
-# Restore original config
-if [[ -f "${CONFIG}.bak" ]]; then
-  mv "${CONFIG}.bak" "$CONFIG"
-else
-  cat > "$CONFIG" <<EOF
-{
-  "data": {},
-  "tui": { "theme": "opencode" },
-  "shell": {}
-}
-EOF
-fi
-
-# Clean up maxctx variants on the server
 echo ""
-echo ">>> Cleaning up test model variants on $REMOTE ..."
-ssh "$REMOTE" "ollama list 2>/dev/null | grep maxctx | awk '{print \$1}' | xargs -r -n1 ollama rm" 2>/dev/null || true
-
-# Reload production model
-echo ">>> Restoring qwen3:14b-64k ..."
+echo ">>> Restoring llama3.1:8b ..."
 stop_loaded_model
 curl -s "http://$REMOTE:11434/api/generate" \
-  -d '{"model": "qwen3:14b-64k", "prompt": "hi", "stream": false}' > /dev/null
-ssh "$REMOTE" "ollama ps"
-
-echo ""
+  -d '{"model": "llama3.1:8b", "prompt": "hi", "stream": false}' > /dev/null
 echo "Done. Report saved to $REPORT"
-echo "Full outputs in $RESULTS_DIR/"

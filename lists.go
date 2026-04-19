@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-const listsDir = "/home/jcgregorio/obsidian/Lists"
-const obsidianRepo = "/home/jcgregorio/obsidian"
+var listsDir = "/home/jcgregorio/obsidian/Lists"
+var obsidianRepo = "/home/jcgregorio/obsidian"
 
 // FetchLists returns the display names of all .md files in the Lists directory.
 // Names are derived from filenames by removing the .md extension.

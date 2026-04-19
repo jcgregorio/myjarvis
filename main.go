@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+
+	"golang.org/x/term"
 )
 
 func main() {
@@ -167,51 +171,61 @@ func main() {
 		fmt.Println("(dry-run mode: tool calls will be printed but not executed)")
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Printf("\nJarvis ready (model: %s). Type a command (Ctrl+D to quit):\n", cfg.Model)
-	for {
-		fmt.Print("> ")
-		if !scanner.Scan() {
-			break
-		}
-		input := strings.TrimSpace(scanner.Text())
-		if input == "" {
-			continue
-		}
-
-		toolsMu.RLock()
-		currentTools := tools
-		toolsMu.RUnlock()
-
-		start := time.Now()
-		toolCalls, reply, err := llm.Chat(context.Background(), input, currentTools)
-		elapsed := time.Since(start)
-		if err != nil {
-			fmt.Printf("LLM error: %v\n", err)
-			continue
-		}
-		fmt.Printf("  [%dms]\n", elapsed.Milliseconds())
-
-		if len(toolCalls) == 0 {
-			fmt.Printf("Jarvis: %s\n", reply)
-			continue
-		}
-
-		for _, tc := range toolCalls {
-			fmt.Printf("→ %s(%s)\n", tc.Name, tc.Args)
-			if *dryRun {
-				fmt.Println("  (skipped — dry-run)")
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		// Interactive CLI mode
+		scanner := bufio.NewScanner(os.Stdin)
+		fmt.Printf("\nJarvis ready (model: %s). Type a command (Ctrl+D to quit):\n", cfg.Model)
+		for {
+			fmt.Print("> ")
+			if !scanner.Scan() {
+				break
+			}
+			input := strings.TrimSpace(scanner.Text())
+			if input == "" {
 				continue
 			}
-			result, err := ha.ExecuteToolCall(context.Background(), tc)
+
+			toolsMu.RLock()
+			currentTools := tools
+			toolsMu.RUnlock()
+
+			start := time.Now()
+			toolCalls, reply, err := llm.Chat(context.Background(), input, currentTools)
+			elapsed := time.Since(start)
 			if err != nil {
-				fmt.Printf("  error: %v\n", err)
-			} else if result != "" {
-				fmt.Printf("Jarvis: %s\n", result)
-			} else {
-				fmt.Printf("  done.\n")
+				fmt.Printf("LLM error: %v\n", err)
+				continue
+			}
+			fmt.Printf("  [%dms]\n", elapsed.Milliseconds())
+
+			if len(toolCalls) == 0 {
+				fmt.Printf("Jarvis: %s\n", reply)
+				continue
+			}
+
+			for _, tc := range toolCalls {
+				fmt.Printf("→ %s(%s)\n", tc.Name, tc.Args)
+				if *dryRun {
+					fmt.Println("  (skipped — dry-run)")
+					continue
+				}
+				result, err := ha.ExecuteToolCall(context.Background(), tc)
+				if err != nil {
+					fmt.Printf("  error: %v\n", err)
+				} else if result != "" {
+					fmt.Printf("Jarvis: %s\n", result)
+				} else {
+					fmt.Printf("  done.\n")
+				}
 			}
 		}
+	} else {
+		// Service mode — no stdin, block until signal
+		fmt.Printf("Jarvis running as service (model: %s). Voice pipeline active.\n", cfg.Model)
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		<-sig
+		fmt.Println("Shutting down.")
 	}
 }
 
@@ -318,6 +332,10 @@ func configFromEnv() Config {
 	}
 	if cfg.AudioPort == 0 {
 		cfg.AudioPort = 8085
+	}
+	if v := os.Getenv("OBSIDIAN_REPO"); v != "" {
+		obsidianRepo = v
+		listsDir = v + "/Lists"
 	}
 	return cfg
 }

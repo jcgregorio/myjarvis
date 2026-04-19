@@ -1,0 +1,1 @@
+{"id":"chatcmpl-521","object":"chat.completion","created":1776550067,"model":"mistral:7b","system_fingerprint":"fp_ollama","choices":[{"index":0,"message":{"role":"assistant","content":" [{\"name\":\"set_state\",\"arguments\":{\"entity\":\"kitchen lights\", \"state\":\"off\"}}]"},"finish_reason":"stop"}],"usage":{"prompt_tokens":510,"completion_tokens":25,"total_tokens":535}}

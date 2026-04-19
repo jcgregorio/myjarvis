@@ -1,4 +1,4 @@
-MODEL     ?= qwen3:14b-64k
+MODEL     ?= llama3.1:8b-16k
 HA_URL    ?= http://homeassistant.local:8123
 HA_TOKEN  ?= $(error HA_TOKEN is required — export HA_TOKEN=<your-long-lived-access-token>)
 OLLAMA_URL ?= http://192.168.1.145:11434/v1
@@ -6,7 +6,7 @@ OLLAMA_URL ?= http://192.168.1.145:11434/v1
 GOBIN := $(shell go env GOPATH)/bin
 ESPHOME := $(HOME)/.venv/esphome/bin/esphome
 
-.PHONY: run dry-run list tools ollama test install flash-kitchen flash-living-room flash-kitchen-test ota ota-kitchen ota-living-room
+.PHONY: run dry-run list tools ollama test install flash-kitchen flash-living-room flash-kitchen-test ota ota-kitchen ota-living-room logs deploy restart
 
 install:
 	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" go install .
@@ -48,3 +48,12 @@ ollama:
 
 test:
 	go test ./...
+
+deploy:
+	docker compose build && docker compose up -d
+
+restart:
+	docker compose restart
+
+logs:
+	docker logs -f myjarvis 2>&1 | grep -v "^Schema error:"

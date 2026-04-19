@@ -1,0 +1,25 @@
+Model Test Report — Sat Apr 18 06:07:57 PM EDT 2026
+
+MODEL                     T1      T2      T3      T4      T5      T1ms      T2ms      T3ms      T4ms      T5ms    
+------------------------  ------  ------  ------  ------  ------  --------  --------  --------  --------  --------
+qwen3:8b                  PASS    PASS    PASS    PASS    PASS    2746ms    4368ms    3040ms    2154ms    2379ms  
+qwen3:4b                  PASS    PASS    PASS    PASS    PASS    6933ms    3418ms    2855ms    2930ms    8494ms  
+qwen3:14b-64k             PASS    PASS    PASS    PASS    PASS    4739ms    3786ms    4993ms    3584ms    4293ms  
+qwen2.5-coder:7b                                          FAIL                                            761ms   
+gemma3:4b                 FAIL    FAIL    FAIL    FAIL    FAIL    312ms     291ms     277ms     283ms     285ms   
+gemma3:12b                FAIL    FAIL    FAIL    FAIL    FAIL    312ms     293ms     290ms     281ms     290ms   
+gemma4:latest             PASS    PASS    PASS    PASS    PASS    995ms     777ms     804ms     768ms     836ms   
+nemotron-3-nano:4b        PASS    PASS    PASS    PASS    PASS    1406ms    1244ms    1878ms    1178ms    1675ms  
+llama3.1:8b               PASS    PASS    PASS    PASS    PASS    972ms     733ms     754ms     685ms     824ms   
+mistral:7b                FAIL    FAIL    FAIL    FAIL    PASS    615ms     492ms     563ms     445ms     405ms   
+phi4-mini                 FAIL    FAIL    FAIL    FAIL    FAIL    788ms     1108ms    705ms     639ms     745ms   
+
+Tests:
+  T1: "Add milk to the shopping list"           → add_to_list(milk)
+  T2: "Check off peanut butter from the list"   → check_off_item(peanut butter)
+  T3: "Add vacuum the garage to chores"         → add_to_list(vacuum..., Chores)
+  T4: "Turn off the kitchen lights"             → set_state(kitchen lights, off)
+  T5: "Which CPU is in Austin's computer"       → search_notes(austin...)
+
+Grades: PASS = correct tool + args, WRONG_ARGS = right tool wrong args,
+        FAIL = wrong tool or no tool call, SKIP = model failed to load

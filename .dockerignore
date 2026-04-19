@@ -1,0 +1,5 @@
+.git
+esphome
+*.wav
+*.sh
+docker-compose.yaml

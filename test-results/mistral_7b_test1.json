@@ -1,0 +1,1 @@
+{"id":"chatcmpl-89","object":"chat.completion","created":1776550066,"model":"mistral:7b","system_fingerprint":"fp_ollama","choices":[{"index":0,"message":{"role":"assistant","content":" [{\"name\":\"add_to_list\",\"arguments\":{\"item\":\"milk\"}}]"},"finish_reason":"stop"}],"usage":{"prompt_tokens":511,"completion_tokens":21,"total_tokens":532}}

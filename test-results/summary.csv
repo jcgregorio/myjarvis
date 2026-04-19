@@ -1,0 +1,124 @@
+qwen3:8b|test1|Add milk to the shopping list|add_to_list|"milk"|TOOL|add_to_list|{"item":"milk","list":"ShoppingList"}|PASS|2746ms
+qwen3:8b|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|TOOL|check_off_item|{"item":"peanut butter","list":"ShoppingList"}|PASS|4368ms
+qwen3:8b|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|TOOL|add_to_list|{"item":"vacuum the garage","list":"Chores"}|PASS|3040ms
+qwen3:8b|test4|Turn off the kitchen lights|set_state|"off"|TOOL|set_state|{"entity":"kitchen lights","state":"off"}|PASS|2154ms
+qwen3:8b|test5|Which CPU is in Austin's computer|search_notes|"austin|TOOL|search_notes|{"query":"Austin computer","question":"Which CPU is in Austin's computer?"}|PASS|2379ms
+qwen3:4b|test1|Add milk to the shopping list|add_to_list|"milk"|TOOL|add_to_list|{"item":"milk","list":"ShoppingList"}|PASS|6933ms
+qwen3:4b|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|TOOL|check_off_item|{"list":"ShoppingList","item":"peanut butter"}|PASS|3418ms
+qwen3:4b|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|TOOL|add_to_list|{"item":"vacuum the garage","list":"Chores"}|PASS|2855ms
+qwen3:4b|test4|Turn off the kitchen lights|set_state|"off"|TOOL|set_state|{"entity":"kitchen lights","state":"off"}|PASS|2930ms
+qwen3:4b|test5|Which CPU is in Austin's computer|search_notes|"austin|TOOL|search_notes|{"query":"Austin computer","question":"Which CPU is in Austin's computer"}|PASS|8494ms
+qwen3:14b-64k|test1|Add milk to the shopping list|add_to_list|"milk"|TOOL|add_to_list|{"item":"milk","list":"ShoppingList"}|PASS|4739ms
+qwen3:14b-64k|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|TOOL|check_off_item|{"item":"peanut butter","list":"ShoppingList"}|PASS|3786ms
+qwen3:14b-64k|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|TOOL|add_to_list|{"item":"vacuum the garage","list":"Chores"}|PASS|4993ms
+qwen3:14b-64k|test4|Turn off the kitchen lights|set_state|"off"|TOOL|set_state|{"entity":"kitchen lights","state":"off"}|PASS|3584ms
+qwen3:14b-64k|test5|Which CPU is in Austin's computer|search_notes|"austin|TOOL|search_notes|{"query":"austin computer","question":"Which CPU is in Austin's computer"}|PASS|4293ms
+qwen2.5-coder:7b|test1|Add milk to the shopping list|add_to_list|"milk"|TEXT
+  "name": "add_to_list",
+  "arguments": {
+    "item": "milk"
+  }
+}|no_tool_call
+  "name": "add_to_list",
+  "arguments": {
+    "item": "milk"
+  }
+}|{
+  "name": "add_to_list",
+  "arguments": {
+    "item": "milk"
+  }
+}|FAIL|927ms
+qwen2.5-coder:7b|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|TEXT
+"name": "check_off_item",
+"arguments": {
+"list": "ShoppingList",
+"item": "peanut butter"
+}
+}|no_tool_call
+"name": "check_off_item",
+"arguments": {
+"list": "ShoppingList",
+"item": "peanut butter"
+}
+}|{
+"name": "check_off_item",
+"arguments": {
+"list": "ShoppingList",
+"item": "peanut butter"
+}
+}|FAIL|738ms
+qwen2.5-coder:7b|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|TEXT
+  "name": "add_to_list",
+  "arguments": {
+    "item": "vacuum the garage",
+    "list": "Chores"
+  }
+}|no_tool_call
+  "name": "add_to_list",
+  "arguments": {
+    "item": "vacuum the garage",
+    "list": "Chores"
+  }
+}|{
+  "name": "add_to_list",
+  "arguments": {
+    "item": "vacuum the garage",
+    "list": "Chores"
+  }
+}|FAIL|848ms
+qwen2.5-coder:7b|test4|Turn off the kitchen lights|set_state|"off"|TEXT
+    "name": "set_state",
+    "arguments": {
+        "entity": "kitchen lights",
+        "state": "off"
+    }
+}|no_tool_call
+    "name": "set_state",
+    "arguments": {
+        "entity": "kitchen lights",
+        "state": "off"
+    }
+}|{
+    "name": "set_state",
+    "arguments": {
+        "entity": "kitchen lights",
+        "state": "off"
+    }
+}|FAIL|798ms
+qwen2.5-coder:7b|test5|Which CPU is in Austin's computer|search_notes|"austin|TEXT|no_tool_call|{"name": "search_notes", "arguments": {"query": "austin computer", "question": "Which CPU is in Austin's computer?"}}|FAIL|761ms
+gemma3:4b|test1|Add milk to the shopping list|add_to_list|"milk"|EMPTY|no_response||FAIL|312ms
+gemma3:4b|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|EMPTY|no_response||FAIL|291ms
+gemma3:4b|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|EMPTY|no_response||FAIL|277ms
+gemma3:4b|test4|Turn off the kitchen lights|set_state|"off"|EMPTY|no_response||FAIL|283ms
+gemma3:4b|test5|Which CPU is in Austin's computer|search_notes|"austin|EMPTY|no_response||FAIL|285ms
+gemma3:12b|test1|Add milk to the shopping list|add_to_list|"milk"|EMPTY|no_response||FAIL|312ms
+gemma3:12b|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|EMPTY|no_response||FAIL|293ms
+gemma3:12b|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|EMPTY|no_response||FAIL|290ms
+gemma3:12b|test4|Turn off the kitchen lights|set_state|"off"|EMPTY|no_response||FAIL|281ms
+gemma3:12b|test5|Which CPU is in Austin's computer|search_notes|"austin|EMPTY|no_response||FAIL|290ms
+gemma4:latest|test1|Add milk to the shopping list|add_to_list|"milk"|TOOL|add_to_list|{"item":"milk","list":"ShoppingList"}|PASS|995ms
+gemma4:latest|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|TOOL|check_off_item|{"item":"peanut butter","list":"ShoppingList"}|PASS|777ms
+gemma4:latest|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|TOOL|add_to_list|{"item":"vacuum the garage","list":"Chores"}|PASS|804ms
+gemma4:latest|test4|Turn off the kitchen lights|set_state|"off"|TOOL|set_state|{"entity":"kitchen lights","state":"off"}|PASS|768ms
+gemma4:latest|test5|Which CPU is in Austin's computer|search_notes|"austin|TOOL|search_notes|{"query":"Austin computer","question":"Which CPU is in Austin's computer"}|PASS|836ms
+nemotron-3-nano:4b|test1|Add milk to the shopping list|add_to_list|"milk"|TOOL|add_to_list|{"item":"milk","list":"ShoppingList"}|PASS|1406ms
+nemotron-3-nano:4b|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|TOOL|check_off_item|{"list":"ShoppingList","item":"peanut butter"}|PASS|1244ms
+nemotron-3-nano:4b|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|TOOL|add_to_list|{"item":"vacuum the garage","list":"Chores"}|PASS|1878ms
+nemotron-3-nano:4b|test4|Turn off the kitchen lights|set_state|"off"|TOOL|set_state|{"entity":"kitchen lights","state":"off"}|PASS|1178ms
+nemotron-3-nano:4b|test5|Which CPU is in Austin's computer|search_notes|"austin|TOOL|search_notes|{"query":"austin computer","question":"Which CPU is in Austin's computer"}|PASS|1675ms
+llama3.1:8b|test1|Add milk to the shopping list|add_to_list|"milk"|TOOL|add_to_list|{"item":"milk","list":"ShoppingList"}|PASS|972ms
+llama3.1:8b|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|TOOL|check_off_item|{"item":"peanut butter","list":"ShoppingList"}|PASS|733ms
+llama3.1:8b|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|TOOL|add_to_list|{"item":"vacuum the garage","list":"Chores"}|PASS|754ms
+llama3.1:8b|test4|Turn off the kitchen lights|set_state|"off"|TOOL|set_state|{"state":"off","entity":"kitchen lights"}|PASS|685ms
+llama3.1:8b|test5|Which CPU is in Austin's computer|search_notes|"austin|TOOL|search_notes|{"query":"Austin computer cpu","question":"Which CPU is in Austin's computer?"}|PASS|824ms
+mistral:7b|test1|Add milk to the shopping list|add_to_list|"milk"|TEXT|no_tool_call|[{"name":"add_to_list","arguments":{"item":"milk"}}]|FAIL|615ms
+mistral:7b|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|TEXT|no_tool_call|[{"name":"check_off_item","arguments":{"list":"ShoppingList","item":"peanut butter"}}]|FAIL|492ms
+mistral:7b|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|TEXT|no_tool_call|[{"name": "add_to_list", "arguments": {"item": "vacuum the garage", "list": "Chores"}}]|FAIL|563ms
+mistral:7b|test4|Turn off the kitchen lights|set_state|"off"|TEXT|no_tool_call|[{"name":"set_state","arguments":{"entity":"kitchen lights", "state":"off"}}]|FAIL|445ms
+mistral:7b|test5|Which CPU is in Austin's computer|search_notes|"austin|TOOL|search_notes|{"query":"austin computer"}|PASS|405ms
+phi4-mini|test1|Add milk to the shopping list|add_to_list|"milk"|TEXT|no_tool_call|{"type":"function","function":{"name":"add_to_list",""parameters":{"item": "milk","list": "ShoppingList"}}}|FAIL|788ms
+phi4-mini|test2|Check off peanut butter from the shopping list|check_off_item|"peanut butter"|TEXT|no_tool_call|{"type":"function","function":{"name":"check_off_item","description":"Mark an item as done on a list. Use this when the user says they got something, completed something, or wants to check off an item|FAIL|1108ms
+phi4-mini|test3|Add vacuum the garage to the chores list|add_to_list|"vacuum|TEXT|no_tool_call|{"type":"function","function":{"name":"add_to_list",""parameters":{"item":"vacuum the garage", "list": "Chores"}}}|FAIL|705ms
+phi4-mini|test4|Turn off the kitchen lights|set_state|"off"|TEXT|no_tool_call|{"type":"function","function":{"name":"set_state","description":"","parameters":{"entity":"kitchen lights","state":"off"}}}|FAIL|639ms
+phi4-mini|test5|Which CPU is in Austin's computer|search_notes|"austin|TEXT|no_tool_call|{"type":"search_notes","function":{"name":"search_notes","parameters":{"query":"austin computer","question":"What CPU is in Austin's computer?"}}}|FAIL|745ms

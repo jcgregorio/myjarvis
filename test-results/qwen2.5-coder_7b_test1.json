@@ -1,0 +1,1 @@
+{"id":"chatcmpl-747","object":"chat.completion","created":1776549992,"model":"qwen2.5-coder:7b","system_fingerprint":"fp_ollama","choices":[{"index":0,"message":{"role":"assistant","content":"{\n  \"name\": \"add_to_list\",\n  \"arguments\": {\n    \"item\": \"milk\"\n  }\n}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":529,"completion_tokens":27,"total_tokens":556}}
