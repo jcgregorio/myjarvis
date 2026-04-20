@@ -81,53 +81,73 @@ func main() {
 	} else {
 		fmt.Println("Voice MQTT subscriber started.")
 	}
-	router.OnSpeechEnd = func(device string) {
-		voiceMQTT.PublishStopStreaming(device)
+	// processVoice handles the full STT → LLM → execute pipeline for a device.
+	// It respects context cancellation at each stage.
+	type voiceResult struct {
+		transcript string
+		toolCalls  []ToolCall
+		reply      string
+		err        error
 	}
-	router.OnComplete = func(device string, audio []byte) {
-		log.Printf("[voice] %s: received %d bytes of audio, transcribing...", device, len(audio))
-		voiceMQTT.PublishLED(device, "thinking")
+
+	processVoice := func(ctx context.Context, device string, audio []byte, speculative bool) *voiceResult {
+		label := "[voice]"
+		if speculative {
+			label = "[voice/spec]"
+		}
 
 		start := time.Now()
 		transcript, err := stt.Transcribe(audio)
 		if err != nil {
-			log.Printf("[voice] %s: STT error: %v", device, err)
-			voiceMQTT.PublishLED(device, "off")
-			return
+			return &voiceResult{err: fmt.Errorf("STT error: %w", err)}
 		}
-		log.Printf("[voice] %s: \"%s\" (%dms)", device, transcript, time.Since(start).Milliseconds())
+		if ctx.Err() != nil {
+			log.Printf("%s %s: cancelled after STT", label, device)
+			return &voiceResult{err: ctx.Err()}
+		}
+		log.Printf("%s %s: \"%s\" (%dms)", label, device, transcript, time.Since(start).Milliseconds())
 
 		if transcript == "" {
-			voiceMQTT.PublishLED(device, "off")
-			return
-		}
-
-		if isStopCommand(transcript) {
-			log.Printf("[voice] %s: stop command received", device)
-			voiceMQTT.PublishStopPlayback(device)
-			voiceMQTT.PublishLED(device, "off")
-			return
+			return &voiceResult{}
 		}
 
 		toolsMu.RLock()
 		currentTools := tools
 		toolsMu.RUnlock()
 
-		toolCalls, reply, err := llm.Chat(context.Background(), transcript, currentTools)
+		toolCalls, reply, err := llm.Chat(ctx, transcript, currentTools)
 		if err != nil {
-			log.Printf("[voice] %s: LLM error: %v", device, err)
+			return &voiceResult{transcript: transcript, err: fmt.Errorf("LLM error: %w", err)}
+		}
+
+		return &voiceResult{transcript: transcript, toolCalls: toolCalls, reply: reply}
+	}
+
+	// executeResult handles tool execution and TTS for a voice result.
+	executeResult := func(device string, vr *voiceResult) {
+		if vr.err != nil {
+			log.Printf("[voice] %s: %v", device, vr.err)
 			voiceMQTT.SignalError(device)
 			return
 		}
-
-		if len(toolCalls) == 0 {
-			log.Printf("[voice] %s: LLM reply (no tool call): %s", device, reply)
+		if vr.transcript == "" {
+			voiceMQTT.PublishLED(device, "off")
+			return
+		}
+		if isStopCommand(vr.transcript) {
+			log.Printf("[voice] %s: stop command received", device)
+			voiceMQTT.PublishStopPlayback(device)
+			voiceMQTT.PublishLED(device, "off")
+			return
+		}
+		if len(vr.toolCalls) == 0 {
+			log.Printf("[voice] %s: LLM reply (no tool call): %s", device, vr.reply)
 			voiceMQTT.SignalError(device)
 			return
 		}
 
 		hadError := false
-		for _, tc := range toolCalls {
+		for _, tc := range vr.toolCalls {
 			log.Printf("[voice] %s: → %s(%s)", device, tc.Name, tc.Args)
 			result, err := ha.ExecuteToolCall(context.Background(), tc)
 			if err != nil {
@@ -145,6 +165,74 @@ func main() {
 		} else {
 			voiceMQTT.PublishLED(device, "off")
 		}
+	}
+
+	// Speculative processing state per device
+	var specMu sync.Mutex
+	type specState struct {
+		cancel context.CancelFunc
+		result chan *voiceResult
+	}
+	speculative := make(map[string]*specState)
+
+	router.OnSpeechEnd = func(device string) {
+		voiceMQTT.PublishStopStreaming(device)
+	}
+
+	router.OnPause = func(device string, audio []byte) {
+		specMu.Lock()
+		// Cancel any prior speculative work for this device
+		if s, ok := speculative[device]; ok {
+			s.cancel()
+			delete(speculative, device)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		ch := make(chan *voiceResult, 1)
+		speculative[device] = &specState{cancel: cancel, result: ch}
+		specMu.Unlock()
+
+		log.Printf("[voice] %s: pause detected, starting speculative processing (%d bytes)", device, len(audio))
+		voiceMQTT.PublishLED(device, "thinking")
+
+		go func() {
+			vr := processVoice(ctx, device, audio, true)
+			select {
+			case ch <- vr:
+			default:
+			}
+		}()
+	}
+
+	router.OnComplete = func(device string, audio []byte) {
+		// Check if speculative processing already completed
+		specMu.Lock()
+		s := speculative[device]
+		delete(speculative, device)
+		specMu.Unlock()
+
+		if s != nil {
+			// Wait briefly for speculative result — it may already be done
+			select {
+			case vr := <-s.result:
+				s.cancel()
+				if vr.err == nil && vr.transcript != "" {
+					log.Printf("[voice] %s: using speculative result", device)
+					executeResult(device, vr)
+					return
+				}
+				log.Printf("[voice] %s: speculative result unusable, reprocessing full audio", device)
+			default:
+				// Speculative work still in progress — cancel it
+				s.cancel()
+				log.Printf("[voice] %s: speculative processing cancelled, using full audio", device)
+			}
+		}
+
+		// Full processing with complete audio
+		log.Printf("[voice] %s: received %d bytes of audio, transcribing...", device, len(audio))
+		voiceMQTT.PublishLED(device, "thinking")
+		vr := processVoice(context.Background(), device, audio, false)
+		executeResult(device, vr)
 	}
 
 	go func() {

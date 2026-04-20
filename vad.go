@@ -9,23 +9,45 @@ import (
 	speech "github.com/streamer45/silero-vad-go/speech"
 )
 
-// VADProcessor wraps Silero VAD for streaming audio detection.
-// It keeps a sliding window of recent audio and re-runs detection
-// on it periodically. The detector is reset before each Detect call
-// because it needs context within the window, and MinSilenceDurationMs
-// is enforced internally by the detector within a single Detect call.
-// After speech end is detected, the buffer is cleared so the next
-// speech cycle starts fresh.
+// VADResult indicates the outcome of a VAD Append call.
+type VADResult int
+
+const (
+	VADNone  VADResult = iota // no state change
+	VADPause                  // short pause detected — speculative processing can start
+	VADDone                   // final end of speech — commit to processing
+)
+
+// VADProcessor wraps two Silero VAD detectors for streaming audio detection.
+// A "pause" detector (short silence threshold) fires early to enable speculative
+// processing, while the "done" detector (longer silence threshold) signals the
+// definitive end of speech.
+//
+// After VADDone, the buffer is cleared so the next speech cycle starts fresh.
 type VADProcessor struct {
-	detector *speech.Detector
+	pauseDet *speech.Detector // short silence (500ms) — fires VADPause
+	doneDet  *speech.Detector // long silence (1500ms) — fires VADDone
 	mu       sync.Mutex
 	pcm      []float32 // sliding window of mono float32 samples
 	spoken   bool      // true once speech has been detected
+	paused   bool      // true after VADPause fired (suppresses duplicate pause events)
 }
 
-// NewVADProcessor creates a new Silero VAD processor.
+// NewVADProcessor creates a new Silero VAD processor with two detectors.
 func NewVADProcessor(modelPath string) (*VADProcessor, error) {
-	det, err := speech.NewDetector(speech.DetectorConfig{
+	pauseDet, err := speech.NewDetector(speech.DetectorConfig{
+		ModelPath:            modelPath,
+		SampleRate:           16000,
+		Threshold:            0.5,
+		MinSilenceDurationMs: 500,
+		SpeechPadMs:          100,
+		LogLevel:             speech.LogLevelWarn,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	doneDet, err := speech.NewDetector(speech.DetectorConfig{
 		ModelPath:            modelPath,
 		SampleRate:           16000,
 		Threshold:            0.5,
@@ -34,30 +56,33 @@ func NewVADProcessor(modelPath string) (*VADProcessor, error) {
 		LogLevel:             speech.LogLevelWarn,
 	})
 	if err != nil {
+		pauseDet.Destroy()
 		return nil, err
 	}
-	return &VADProcessor{detector: det}, nil
+
+	return &VADProcessor{pauseDet: pauseDet, doneDet: doneDet}, nil
 }
 
-// Reset clears accumulated samples and resets the detector state.
+// Reset clears accumulated samples and resets detector state.
 func (v *VADProcessor) Reset() {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.pcm = v.pcm[:0]
 	v.spoken = false
-	v.detector.Reset()
+	v.paused = false
+	v.pauseDet.Reset()
+	v.doneDet.Reset()
 }
 
-// Append converts a 32-bit stereo PCM chunk to mono float32,
-// appends it, and checks for speech end. Returns true if speech
-// was detected and then silence of MinSilenceDurationMs followed.
+// Append converts a 32-bit stereo PCM chunk to mono float32, appends it, and
+// checks for speech pauses and end. Returns VADPause on the first short pause
+// after speech, VADDone on final end of speech, or VADNone otherwise.
 //
-// Detection runs on a sliding window (last 5 seconds) each cycle.
-// The detector is reset before each call so it processes the window
-// from scratch — this is necessary because the detector measures
-// silence duration within a single Detect call. After speech end
-// is detected, the buffer is cleared so the next cycle starts fresh.
-func (v *VADProcessor) Append(chunk []byte) bool {
+// Detection runs on a sliding window (last 5 seconds) each cycle. Both
+// detectors are reset before each call so they process the window from
+// scratch — necessary because silence duration is measured within a single
+// Detect call.
+func (v *VADProcessor) Append(chunk []byte) VADResult {
 	mono := pcm32StereoToFloat32Mono(chunk)
 
 	v.mu.Lock()
@@ -68,12 +93,11 @@ func (v *VADProcessor) Append(chunk []byte) bool {
 	// Only run detection every ~250ms worth of new audio (4096 samples at 16kHz)
 	// and need at least 1024 samples
 	if totalSamples < 1024 || totalSamples%4096 > len(mono) {
-		return false
+		return VADNone
 	}
 
 	v.mu.Lock()
 	// Sliding window: keep last 5 seconds (80000 samples at 16kHz).
-	// This must be long enough to contain speech + 1500ms silence.
 	const windowSamples = 80000
 	start := 0
 	if len(v.pcm) > windowSamples {
@@ -83,44 +107,80 @@ func (v *VADProcessor) Append(chunk []byte) bool {
 	copy(buf, v.pcm[start:])
 	v.mu.Unlock()
 
-	// Reset and re-detect on the window so the detector can
-	// correctly measure silence duration from speech end.
-	v.detector.Reset()
-	segments, err := v.detector.Detect(buf)
-	if err != nil {
-		log.Printf("[vad] detect error: %v", err)
-		return false
+	// Run both detectors on the same window
+	v.pauseDet.Reset()
+	pauseSegs, pauseErr := v.pauseDet.Detect(buf)
+	if pauseErr != nil {
+		log.Printf("[vad] pause detect error: %v", pauseErr)
 	}
 
-	for _, seg := range segments {
+	v.doneDet.Reset()
+	doneSegs, doneErr := v.doneDet.Detect(buf)
+	if doneErr != nil {
+		log.Printf("[vad] done detect error: %v", doneErr)
+	}
+
+	// Track speech start from either detector
+	for _, seg := range pauseSegs {
 		if seg.SpeechStartAt >= 0 {
 			v.mu.Lock()
 			v.spoken = true
 			v.mu.Unlock()
 		}
-		if seg.SpeechEndAt > 0 {
+	}
+	for _, seg := range doneSegs {
+		if seg.SpeechStartAt >= 0 {
 			v.mu.Lock()
-			spoken := v.spoken
+			v.spoken = true
 			v.mu.Unlock()
-			if spoken {
-				log.Printf("[vad] speech ended at %.2fs", seg.SpeechEndAt)
-				// Clear buffer so the next speech cycle starts fresh
+		}
+	}
+
+	v.mu.Lock()
+	spoken := v.spoken
+	paused := v.paused
+	v.mu.Unlock()
+
+	if !spoken {
+		return VADNone
+	}
+
+	// Check done detector first (takes priority over pause)
+	for _, seg := range doneSegs {
+		if seg.SpeechEndAt > 0 {
+			log.Printf("[vad] speech ended at %.2fs", seg.SpeechEndAt)
+			v.mu.Lock()
+			v.pcm = v.pcm[:0]
+			v.spoken = false
+			v.paused = false
+			v.mu.Unlock()
+			return VADDone
+		}
+	}
+
+	// Check pause detector — only fire once per speech segment
+	if !paused {
+		for _, seg := range pauseSegs {
+			if seg.SpeechEndAt > 0 {
+				log.Printf("[vad] pause detected at %.2fs", seg.SpeechEndAt)
 				v.mu.Lock()
-				v.pcm = v.pcm[:0]
-				v.spoken = false
+				v.paused = true
 				v.mu.Unlock()
-				return true
+				return VADPause
 			}
 		}
 	}
 
-	return false
+	return VADNone
 }
 
 // Destroy releases the detector resources.
 func (v *VADProcessor) Destroy() {
-	if v.detector != nil {
-		v.detector.Destroy()
+	if v.pauseDet != nil {
+		v.pauseDet.Destroy()
+	}
+	if v.doneDet != nil {
+		v.doneDet.Destroy()
 	}
 }
 

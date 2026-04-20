@@ -29,16 +29,28 @@ func (s *AudioSession) Bytes() []byte {
 	return s.buf.Bytes()
 }
 
+// Snapshot returns a copy of the accumulated audio data so far.
+func (s *AudioSession) Snapshot() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snap := make([]byte, s.buf.Len())
+	copy(snap, s.buf.Bytes())
+	return snap
+}
+
 // AudioRouter manages per-device audio sessions.
 // When a session completes (via VAD or audio_stop), the OnComplete callback is called.
 // OnSpeechEnd is called when VAD detects end of speech, allowing the caller to
 // signal the device to stop streaming.
+// OnPause is called when VAD detects a short pause in speech, delivering a snapshot
+// of audio so far for speculative processing.
 type AudioRouter struct {
 	mu          sync.Mutex
 	sessions    map[string]*AudioSession // device name → active session
 	vad         *VADProcessor
 	OnComplete  func(device string, audio []byte)
 	OnSpeechEnd func(device string)
+	OnPause     func(device string, audio []byte)
 }
 
 func NewAudioRouter(vad *VADProcessor) *AudioRouter {
@@ -66,7 +78,8 @@ func (r *AudioRouter) StartSession(device string) {
 }
 
 // AppendAudio adds a chunk to the active session for a device.
-// If VAD detects end of speech, it automatically stops the session.
+// If VAD detects a pause, it fires OnPause with a snapshot.
+// If VAD detects end of speech, it stops the session.
 func (r *AudioRouter) AppendAudio(device string, data []byte) {
 	r.mu.Lock()
 	s := r.sessions[device]
@@ -77,12 +90,20 @@ func (r *AudioRouter) AppendAudio(device string, data []byte) {
 	s.Append(data)
 
 	// Run VAD on the chunk
-	if r.vad != nil && r.vad.Append(data) {
-		log.Printf("[audio] %s: VAD detected end of speech", device)
-		if r.OnSpeechEnd != nil {
-			r.OnSpeechEnd(device)
+	if r.vad != nil {
+		switch r.vad.Append(data) {
+		case VADPause:
+			log.Printf("[audio] %s: VAD detected pause in speech", device)
+			if r.OnPause != nil {
+				r.OnPause(device, s.Snapshot())
+			}
+		case VADDone:
+			log.Printf("[audio] %s: VAD detected end of speech", device)
+			if r.OnSpeechEnd != nil {
+				r.OnSpeechEnd(device)
+			}
+			r.completeSession(device)
 		}
-		r.completeSession(device)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -64,15 +65,30 @@ func (v *VaultSearcher) SummarizeNotes(ctx context.Context, args string) (string
 	return v.askWithContext(ctx, "Summarize the following notes.", docs)
 }
 
-// grepVault searches all .md files in the vault for any of the space-separated
-// keywords in query. Returns matching file contents keyed by relative path.
+const (
+	maxDocs      = 5     // send at most this many documents to the LLM
+	maxContextKB = 16384 // hard cap on total context bytes sent to LLM
+	snippetLines = 3     // lines of context above and below a keyword match
+)
+
+// docMatch holds a scored document with extracted snippets.
+type docMatch struct {
+	path     string
+	score    int
+	snippets []string
+}
+
+// grepVault searches all .md files in the vault for the space-separated
+// keywords in query. Returns the top-scoring documents with relevant snippets
+// rather than full file contents. Documents are scored by how many distinct
+// keywords they match — more matches = higher relevance.
 func (v *VaultSearcher) grepVault(query string) (map[string]string, error) {
 	keywords := splitKeywords(query)
 	if len(keywords) == 0 {
 		return nil, fmt.Errorf("no search keywords provided")
 	}
 
-	matches := make(map[string]string)
+	var scored []docMatch
 
 	err := filepath.Walk(v.vaultDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".md") {
@@ -92,17 +108,120 @@ func (v *VaultSearcher) grepVault(query string) (map[string]string, error) {
 		lower := strings.ToLower(string(content))
 		lowerName := strings.ToLower(info.Name())
 
+		// Score by number of distinct keywords matched
+		score := 0
 		for _, kw := range keywords {
 			if strings.Contains(lower, kw) || strings.Contains(lowerName, kw) {
-				rel, _ := filepath.Rel(v.vaultDir, path)
-				matches[rel] = string(content)
+				score++
+			}
+		}
+		if score == 0 {
+			return nil
+		}
+
+		snippets := extractSnippets(string(content), keywords)
+		scored = append(scored, docMatch{path: rel, score: score, snippets: snippets})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort by score descending
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	// Take top N docs, respecting the context size cap
+	results := make(map[string]string)
+	totalBytes := 0
+	for i, dm := range scored {
+		if i >= maxDocs {
+			break
+		}
+		text := strings.Join(dm.snippets, "\n---\n")
+		if totalBytes+len(text) > maxContextKB {
+			// Try to fit a truncated version
+			remaining := maxContextKB - totalBytes
+			if remaining > 200 {
+				text = text[:remaining]
+			} else {
 				break
 			}
 		}
-		return nil
-	})
+		results[dm.path] = text
+		totalBytes += len(text)
+	}
 
-	return matches, err
+	return results, nil
+}
+
+// extractSnippets pulls out the lines surrounding keyword matches in content,
+// giving snippetLines of context above and below each match. Adjacent/overlapping
+// regions are merged into a single snippet.
+func extractSnippets(content string, keywords []string) []string {
+	lines := strings.Split(content, "\n")
+	matched := make([]bool, len(lines))
+
+	for i, line := range lines {
+		lower := strings.ToLower(line)
+		for _, kw := range keywords {
+			if strings.Contains(lower, kw) {
+				// Mark this line and surrounding context
+				start := i - snippetLines
+				if start < 0 {
+					start = 0
+				}
+				end := i + snippetLines + 1
+				if end > len(lines) {
+					end = len(lines)
+				}
+				for j := start; j < end; j++ {
+					matched[j] = true
+				}
+				break
+			}
+		}
+	}
+
+	// Collect contiguous matched regions as snippets
+	var snippets []string
+	var current []string
+	for i, line := range lines {
+		if matched[i] {
+			current = append(current, line)
+		} else if len(current) > 0 {
+			snippets = append(snippets, strings.Join(current, "\n"))
+			current = nil
+		}
+	}
+	if len(current) > 0 {
+		snippets = append(snippets, strings.Join(current, "\n"))
+	}
+
+	// If no snippets were extracted (shouldn't happen), fall back to first 20 lines
+	if len(snippets) == 0 {
+		end := 20
+		if end > len(lines) {
+			end = len(lines)
+		}
+		snippets = append(snippets, strings.Join(lines[:end], "\n"))
+	}
+
+	return snippets
+}
+
+// verbose phrases that signal the user wants a detailed answer.
+var verbosePhrases = []string{"research", "deep research", "explain to me", "explain", "tell me everything", "in detail"}
+
+func wantsVerbose(question string) bool {
+	q := strings.ToLower(question)
+	for _, phrase := range verbosePhrases {
+		if strings.Contains(q, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 // askWithContext sends the matched documents plus the question to the LLM
@@ -115,10 +234,16 @@ func (v *VaultSearcher) askWithContext(ctx context.Context, question string, doc
 
 	log.Printf("[vault] sending %d doc(s) (%d bytes) to LLM", len(docs), b.Len())
 
+	brevity := "Keep your answer to one or two sentences — just the key fact."
+	if wantsVerbose(question) {
+		brevity = "Give a thorough answer with relevant details."
+	}
+
 	return v.llm.ChatPlain(ctx,
 		"You are a helpful home assistant. Answer questions using the provided documents. "+
-			"Give short, natural answers suitable for text-to-speech — no markdown, no lists, no special formatting. "+
-			"Just speak naturally as if answering a person out loud.",
+			"Give natural answers suitable for text-to-speech — no markdown, no lists, no special formatting. "+
+			"Just speak naturally as if answering a person out loud. "+
+			brevity,
 		fmt.Sprintf("Here are some documents from my notes:\n\n%s\nQuestion: %s", b.String(), question),
 	)
 }
