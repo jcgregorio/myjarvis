@@ -1,4 +1,4 @@
-MODEL     ?= llama3.1:8b-16k
+MODEL     ?= gemma4:latest
 HA_URL    ?= http://homeassistant.local:8123
 HA_TOKEN  ?= $(error HA_TOKEN is required — export HA_TOKEN=<your-long-lived-access-token>)
 OLLAMA_URL ?= http://192.168.1.145:11434/v1

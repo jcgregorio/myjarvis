@@ -66,9 +66,9 @@ func (v *VaultSearcher) SummarizeNotes(ctx context.Context, args string) (string
 }
 
 const (
-	maxDocs      = 5     // send at most this many documents to the LLM
-	maxContextKB = 16384 // hard cap on total context bytes sent to LLM
-	snippetLines = 3     // lines of context above and below a keyword match
+	maxDocs        = 5     // send at most this many documents to the LLM
+	maxContextKB   = 16384 // hard cap on total context bytes sent to LLM
+	smallFileBytes = 4096  // files this size or smaller are sent in full
 )
 
 // docMatch holds a scored document with extracted snippets.
@@ -87,6 +87,7 @@ func (v *VaultSearcher) grepVault(query string) (map[string]string, error) {
 	if len(keywords) == 0 {
 		return nil, fmt.Errorf("no search keywords provided")
 	}
+	log.Printf("[vault] search keywords: %v", keywords)
 
 	var scored []docMatch
 
@@ -119,7 +120,13 @@ func (v *VaultSearcher) grepVault(query string) (map[string]string, error) {
 			return nil
 		}
 
-		snippets := extractSnippets(string(content), keywords)
+		text := string(content)
+		var snippets []string
+		if len(content) <= smallFileBytes {
+			snippets = []string{text}
+		} else {
+			snippets = extractSections(text, keywords)
+		}
 		scored = append(scored, docMatch{path: rel, score: score, snippets: snippets})
 		return nil
 	})
@@ -131,6 +138,11 @@ func (v *VaultSearcher) grepVault(query string) (map[string]string, error) {
 	sort.Slice(scored, func(i, j int) bool {
 		return scored[i].score > scored[j].score
 	})
+
+	log.Printf("[vault] %d matching doc(s):", len(scored))
+	for i, dm := range scored {
+		log.Printf("[vault]   #%d %q score=%d snippets=%d", i+1, dm.path, dm.score, len(dm.snippets))
+	}
 
 	// Take top N docs, respecting the context size cap
 	results := make(map[string]string)
@@ -156,52 +168,46 @@ func (v *VaultSearcher) grepVault(query string) (map[string]string, error) {
 	return results, nil
 }
 
-// extractSnippets pulls out the lines surrounding keyword matches in content,
-// giving snippetLines of context above and below each match. Adjacent/overlapping
-// regions are merged into a single snippet.
-func extractSnippets(content string, keywords []string) []string {
+// extractSections splits content on markdown headers (lines starting with #)
+// and returns the full text of every section that contains at least one keyword.
+// This preserves logical structure (tables, lists) instead of grabbing arbitrary
+// lines around a match.
+func extractSections(content string, keywords []string) []string {
 	lines := strings.Split(content, "\n")
-	matched := make([]bool, len(lines))
 
+	// Split into sections. A section starts at a # header and runs until the
+	// next header or end of file. Content before the first header is section 0.
+	type section struct {
+		start int
+		end   int
+	}
+	var sections []section
+	cur := 0
 	for i, line := range lines {
-		lower := strings.ToLower(line)
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") && i > 0 {
+			sections = append(sections, section{cur, i})
+			cur = i
+		}
+	}
+	sections = append(sections, section{cur, len(lines)})
+
+	// Keep sections that contain at least one keyword match.
+	var snippets []string
+	for _, sec := range sections {
+		block := strings.Join(lines[sec.start:sec.end], "\n")
+		lower := strings.ToLower(block)
 		for _, kw := range keywords {
 			if strings.Contains(lower, kw) {
-				// Mark this line and surrounding context
-				start := i - snippetLines
-				if start < 0 {
-					start = 0
-				}
-				end := i + snippetLines + 1
-				if end > len(lines) {
-					end = len(lines)
-				}
-				for j := start; j < end; j++ {
-					matched[j] = true
-				}
+				snippets = append(snippets, strings.TrimSpace(block))
 				break
 			}
 		}
 	}
 
-	// Collect contiguous matched regions as snippets
-	var snippets []string
-	var current []string
-	for i, line := range lines {
-		if matched[i] {
-			current = append(current, line)
-		} else if len(current) > 0 {
-			snippets = append(snippets, strings.Join(current, "\n"))
-			current = nil
-		}
-	}
-	if len(current) > 0 {
-		snippets = append(snippets, strings.Join(current, "\n"))
-	}
-
-	// If no snippets were extracted (shouldn't happen), fall back to first 20 lines
+	// Fallback: if nothing matched by section (e.g. no headers), return first 40 lines.
 	if len(snippets) == 0 {
-		end := 20
+		end := 40
 		if end > len(lines) {
 			end = len(lines)
 		}
@@ -233,16 +239,18 @@ func (v *VaultSearcher) askWithContext(ctx context.Context, question string, doc
 	}
 
 	log.Printf("[vault] sending %d doc(s) (%d bytes) to LLM", len(docs), b.Len())
+	for path, content := range docs {
+		log.Printf("[vault] doc %q (%d bytes):\n%s", path, len(content), content)
+	}
 
-	brevity := "Keep your answer to one or two sentences — just the key fact."
+	brevity := "Keep your answer short — just the key fact or facts."
 	if wantsVerbose(question) {
 		brevity = "Give a thorough answer with relevant details."
 	}
 
 	return v.llm.ChatPlain(ctx,
 		"You are a helpful home assistant. Answer questions using the provided documents. "+
-			"Give natural answers suitable for text-to-speech — no markdown, no lists, no special formatting. "+
-			"Just speak naturally as if answering a person out loud. "+
+			"Give answers suitable for text-to-speech — no markdown, no lists, no special formatting. "+
 			brevity,
 		fmt.Sprintf("Here are some documents from my notes:\n\n%s\nQuestion: %s", b.String(), question),
 	)
