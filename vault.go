@@ -250,7 +250,7 @@ func (v *VaultSearcher) askWithContext(ctx context.Context, question string, doc
 
 	return v.llm.ChatPlain(ctx,
 		"You are a helpful home assistant. Answer questions using the provided documents. "+
-			"Give answers suitable for text-to-speech — no markdown, no lists, no special formatting. "+
+			"Give answers suitable for text-to-speech — no markdown, no lists, no special formatting."+
 			brevity,
 		fmt.Sprintf("Here are some documents from my notes:\n\n%s\nQuestion: %s", b.String(), question),
 	)

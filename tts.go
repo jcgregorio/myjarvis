@@ -32,7 +32,9 @@ type wyomingEvent struct {
 }
 
 // Synthesize sends text to Piper and returns WAV audio.
+// Text is normalized for TTS before synthesis (dates, prices, etc.).
 func (t *TTSClient) Synthesize(text string) ([]byte, error) {
+	text = NormalizeForTTS(text)
 	conn, err := net.Dial("tcp", t.addr)
 	if err != nil {
 		return nil, fmt.Errorf("connect to piper: %w", err)
