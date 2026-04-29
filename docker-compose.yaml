@@ -9,7 +9,7 @@ services:
     environment:
       - OLLAMA_URL=http://192.168.1.145:11434/v1
       - WHISPER_URL=http://localhost:8000
-      - MODEL=gemma4:latest
+      - MODEL=qwen3:14b-64k
       - MQTT_BROKER=mqtt://localhost:1883
       - PIPER_ADDR=localhost:10200
       - AUDIO_PORT=8085
