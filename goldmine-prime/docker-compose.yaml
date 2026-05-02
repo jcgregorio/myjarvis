@@ -1,0 +1,20 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant-unified
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - /home/jcgregorio/qdrant_data:/qdrant/storage:z
+    environment:
+      # Aggressive MMAP: Force almost everything to stay on disk until queried
+      - QDRANT__STORAGE__OPTIMIZERS__MEMMAP_THRESHOLD_KB=1024
+      # Limit threads to prevent CPU thrashing on a 32GB system
+      - QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS=8
+      # Ensure segments are consolidated to reduce open file handles
+      - QDRANT__STORAGE__OPTIMIZERS__DEFAULT_SEGMENT_NUMBER=1
+    deploy:
+      resources:
+        limits:
+          memory: 12G # Hard cap for the container
