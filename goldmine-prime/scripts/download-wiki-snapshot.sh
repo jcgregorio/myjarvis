@@ -5,8 +5,8 @@
 # Sizes: ~367 GB download, ~380 GB after concat (so plan ~750 GB free during
 # the run, then delete the .part files).
 #
-# Requires: huggingface-cli (pip install -U "huggingface_hub[cli]"), curl,
-# and a running Qdrant >=1.15 reachable at $QDRANT_URL.
+# Requires: hf CLI (huggingface_hub), curl, and a running Qdrant >=1.15 at
+# $QDRANT_URL.
 
 set -euo pipefail
 
@@ -18,7 +18,7 @@ HF_REPO="EmergentMethods/en_qdrant_wikipedia"
 mkdir -p "$SNAPSHOT_DIR"
 
 echo "==> Downloading $HF_REPO -> $SNAPSHOT_DIR"
-huggingface-cli download "$HF_REPO" \
+hf download "$HF_REPO" \
     --repo-type dataset \
     --local-dir "$SNAPSHOT_DIR"
 
