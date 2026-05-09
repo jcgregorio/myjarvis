@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 # Initialize Clients
 client = QdrantClient(url=QDRANT_URL)
-model = SparseTextEmbedding(model_name="prithivida/Splade_PP_en_v1")
+splade = SparseTextEmbedding(model_name="prithivida/Splade_PP_en_v1")
+bm25 = SparseTextEmbedding(model_name="Qdrant/bm25")
 
 def get_content_hash(text):
     """Generates a SHA-256 hash to track content changes."""
@@ -30,7 +31,11 @@ def ensure_collection():
             sparse_vectors_config={
                 "text-sparse": models.SparseVectorParams(
                     index=models.SparseIndexParams(on_disk=True)
-                )
+                ),
+                "bm25": models.SparseVectorParams(
+                    index=models.SparseIndexParams(on_disk=True),
+                    modifier=models.Modifier.IDF,
+                ),
             }
         )
 
@@ -116,27 +121,33 @@ def index_vault():
                         with_payload=True
                     )
                     
-                    #if existing and existing[0].payload.get("hash") == new_hash:
-                    #    continue # Skip re-embedding if content hasn't changed
+                    if existing and existing[0].payload.get("hash") == new_hash:
+                        continue
                     
                     logger.info(f"Indexing: {rel_path} > {heading}")
                     
-                    # Generate SPLADE Sparse Vector
                     combined_text = f"File: {rel_path} \nSection: {heading} \n\n{text}"
-                    embeddings = list(model.embed([combined_text]))[0]
+                    splade_emb = list(splade.embed([combined_text]))[0]
+                    bm25_emb = list(bm25.embed([combined_text]))[0]
 
-                    sparse_vector = models.SparseVector(
-                        indices=embeddings.indices.tolist(),
-                        values=embeddings.values.tolist()
+                    splade_vec = models.SparseVector(
+                        indices=splade_emb.indices.tolist(),
+                        values=splade_emb.values.tolist()
+                    )
+                    bm25_vec = models.SparseVector(
+                        indices=bm25_emb.indices.tolist(),
+                        values=bm25_emb.values.tolist()
                     )
 
-                    # Upsert to Qdrant
                     client.upsert(
                         collection_name=COLLECTION_NAME,
                         points=[
                             models.PointStruct(
                                 id=point_id,
-                                vector={"text-sparse": sparse_vector},
+                                vector={
+                                    "text-sparse": splade_vec,
+                                    "bm25": bm25_vec,
+                                },
                                 payload={
                                     "content": text,
                                     "hash": new_hash,

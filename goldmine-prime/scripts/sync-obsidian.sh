@@ -1,35 +1,34 @@
 #!/bin/bash
+#
+# Cron sync for the Obsidian vault on goldmine-prime.
+# Pulls the vault git repo, mirrors to /mnt/archive, and reindexes Qdrant
+# (obsidian_vault) only when HEAD changed. The indexer's hash-skip means
+# unchanged chunks are not re-embedded, so reindex is cheap on small diffs.
 
-set -ex
+set -e
 
-# Configuration
 VAULT_DIR="/home/jcgregorio/obsidian"
 BACKUP_DIR="/mnt/archive/obsidian_backups"
 LOG_FILE="/home/jcgregorio/.obsidian_sync.log"
+GOLDMINE_DIR="/home/jcgregorio/myjarvis/goldmine-prime"
+INDEXER_PY="$GOLDMINE_DIR/.venv/bin/python $GOLDMINE_DIR/indexer.py"
+LOCK="/tmp/sync-obsidian.lock"
 
-# Ensure backup directory exists
+exec 9>"$LOCK"
+flock -n 9 || exit 0
+
 mkdir -p "$BACKUP_DIR"
+cd "$VAULT_DIR"
 
-# Navigate to vault
-cd "$VAULT_DIR" || exit
-
-# 1. Capture the state before pulling
 OLD_REV=$(git rev-parse HEAD)
-
-# 2. Pull changes using gh/git
-# We use --ff-only to ensure we don't get into merge conflict hell in a cron job
 git pull --ff-only origin main >> "$LOG_FILE" 2>&1
-
-# 3. Capture state after pulling
 NEW_REV=$(git rev-parse HEAD)
 
-# 4. If the revision changed, sync to the 7.2TB drive
 if [ "$OLD_REV" != "$NEW_REV" ]; then
     echo "[$(date)] Change detected ($OLD_REV -> $NEW_REV). Mirroring to archive..." >> "$LOG_FILE"
-    
-    # rsync -a: archive mode (preserves permissions/times)
-    # --delete: removes files in backup that were deleted in the vault
-    rsync -a --delete "$VAULT_DIR/" "$BACKUP_DIR/"
-    
-    echo "[$(date)] Backup complete." >> "$LOG_FILE"
+    rsync -a --delete "$VAULT_DIR/" "$BACKUP_DIR/" >> "$LOG_FILE" 2>&1
+    echo "[$(date)] Backup complete. Reindexing Qdrant..." >> "$LOG_FILE"
+    cd "$GOLDMINE_DIR"
+    $INDEXER_PY >> "$LOG_FILE" 2>&1
+    echo "[$(date)] Reindex complete." >> "$LOG_FILE"
 fi

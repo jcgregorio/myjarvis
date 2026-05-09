@@ -1,12 +1,15 @@
 #!/bin/bash
+#
+# Install the every-minute Obsidian sync cron on goldmine-prime, pointing
+# at the in-repo script. Removes any previous entry that pointed at the
+# orphan /home/jcgregorio/scripts/sync-obsidian.sh location.
 
-SCRIPT_PATH="/home/jcgregorio/scripts/sync-obsidian.sh"
+SCRIPT_PATH="/home/jcgregorio/myjarvis/goldmine-prime/scripts/sync-obsidian.sh"
 
-# 1. Make the sync script executable
 chmod +x "$SCRIPT_PATH"
 
-# 2. Add to crontab if it doesn't already exist
-# This runs once per minute (* * * * *)
-(crontab -l 2>/dev/null | grep -Fv "$SCRIPT_PATH" ; echo "* * * * * $SCRIPT_PATH") | crontab -
+# Strip any prior sync-obsidian.sh entry (in-repo or orphan) and add the canonical one.
+(crontab -l 2>/dev/null | grep -Fv "sync-obsidian.sh" ; echo "* * * * * $SCRIPT_PATH") | crontab -
 
-echo "Cron job installed. Obsidian will sync and backup every minute."
+echo "Cron installed: $SCRIPT_PATH (runs every minute)"
+crontab -l
