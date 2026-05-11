@@ -38,12 +38,15 @@ make tools
 | `MODEL` | Ollama model name | `qwen3:14b-64k` (default in Makefile: `qwen2.5:7b`) |
 | `STT_URL` | faster-whisper server URL | `http://localhost:8000` |
 | `LISTS_DIR` | Obsidian vault lists directory | `/home/jcgregorio/obsidian/Lists` |
+| `RAG_URL` | Hybrid-search sidecar on goldmine-prime | `http://192.168.1.145:8011` |
 
 ## Architecture
 
 ```
 ESP32 (microWakeWord) --MQTT--> AudioRouter --VAD--> STT --> LLM --> HA REST API
                                                                  --> Obsidian Lists (git)
+                                                                 --> RAG sidecar --> Qdrant
+                                                                       (obsidian_vault, WIKIPEDIA_ENGLISH)
 ```
 
 - **mqtt.go** — MQTT v5 client (autopaho). Subscribes to `jarvis/+/{audio_start,audio,audio_stop,wake_detected}`. Publishes LED states, stop_streaming, TTS URLs.
@@ -51,8 +54,9 @@ ESP32 (microWakeWord) --MQTT--> AudioRouter --VAD--> STT --> LLM --> HA REST API
 - **vad.go** — Silero VAD v5 via ONNX. 16kHz, threshold 0.5, 800ms min silence. Converts 32-bit stereo PCM to float32 mono. Runs detection every ~250ms on sliding 3-second window.
 - **stt.go** — Sends audio to faster-whisper. Converts 32-bit stereo PCM to 16-bit mono WAV. Multipart POST to `/v1/audio/transcriptions`.
 - **llm.go** — OpenAI-compatible client (openai-go SDK) pointed at Ollama. System prompt for home assistant voice control. Has regex fallback for qwen2.5 text-format tool calls `(((tool_name {"arg": "val"})))`.
-- **tools.go** — Dynamically builds OpenAI tool schemas from HA entities. Tools: `set_state`, `trigger_automation`, `set_timer`, `add_to_list`.
-- **ha.go** — HA REST API client. Fetches controllable entities (light, switch, input_boolean, fan, cover, media_player, climate, script, automation). Maintains friendly-name-to-entity-ID map. Dispatches tool calls to domain-specific service handlers.
+- **tools.go** — Dynamically builds OpenAI tool schemas from HA entities. Tools: `set_state`, `trigger_automation`, `set_timer`, `check_list`, `check_off_item`, `uncheck_item`, `clean_lists`, `add_to_list`, `search_notes`, `search_wikipedia`.
+- **ha.go** — HA REST API client. Fetches controllable entities (light, switch, input_boolean, fan, cover, media_player, climate, script, automation). Maintains friendly-name-to-entity-ID map. Dispatches tool calls to domain-specific service handlers, including RAG-backed `search_notes` / `search_wikipedia` via `RAGSearcher`.
+- **rag.go** — HTTP client for the goldmine-prime search sidecar plus `RAGSearcher` that runs hybrid Qdrant retrieval (SPLADE + BM25, DBSF fusion) over `obsidian_vault` or `WIKIPEDIA_ENGLISH` and answers with `LLMClient.ChatPlain`. Wikipedia answers include source attribution.
 - **lists.go** — Appends items to Obsidian markdown checklists in `LISTS_DIR`. Does git pull/add/commit/push for sync.
 - **main.go** — Entry point. Loads config from env vars. Refreshes HA entities every 5 minutes. Runs MQTT subscriber + interactive CLI loop. Subcommands: `list`, `tools`. Flag: `--dry-run`.
 

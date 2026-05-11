@@ -74,8 +74,10 @@ func BuildTools(entities []HAEntity, listNames []string) []openai.ChatCompletion
 	tools = append(tools,
 		openai.ChatCompletionToolParam{
 			Function: shared.FunctionDefinitionParam{
-				Name:        "search_notes",
-				Description: openai.String("Search personal notes to answer a question. Use this when the user asks about people, computers, cars, schedules, or anything that might be in their notes."),
+				Name: "search_notes",
+				Description: openai.String("Search the user's personal notes (Obsidian vault) to answer a question or produce a summary. " +
+					"Use this for anything specific to the user: properties they own, their computers, cars, projects, schedule, todos, " +
+					"or topics they've written about. NOT for general world knowledge — use search_wikipedia for that."),
 				Parameters: shared.FunctionParameters{
 					"type": "object",
 					"properties": map[string]any{
@@ -85,7 +87,7 @@ func BuildTools(entities []HAEntity, listNames []string) []openai.ChatCompletion
 						},
 						"question": map[string]any{
 							"type":        "string",
-							"description": "The original question to answer using the found notes",
+							"description": "The user's original question or request (e.g. 'when did I buy the Hayes Run property?' or 'summarize my Goldmine Prime notes')",
 						},
 					},
 					"required": []string{"query", "question"},
@@ -94,17 +96,23 @@ func BuildTools(entities []HAEntity, listNames []string) []openai.ChatCompletion
 		},
 		openai.ChatCompletionToolParam{
 			Function: shared.FunctionDefinitionParam{
-				Name:        "summarize_notes",
-				Description: openai.String("Summarize personal notes on a topic. Use this when the user asks for a summary or overview of something in their notes."),
+				Name: "search_wikipedia",
+				Description: openai.String("Look up factual information from Wikipedia. " +
+					"Use this for general knowledge questions about people, places, history, science, definitions — " +
+					"anything that isn't specific to the user. NOT for personal notes — use search_notes for that."),
 				Parameters: shared.FunctionParameters{
 					"type": "object",
 					"properties": map[string]any{
 						"query": map[string]any{
 							"type":        "string",
-							"description": "Search keywords to find the notes to summarize (e.g. 'goldmine prime' or 'shopping list')",
+							"description": "Search keywords to find relevant articles (e.g. 'transistor invention' or 'great barrier reef')",
+						},
+						"question": map[string]any{
+							"type":        "string",
+							"description": "The user's original question (e.g. 'who invented the transistor?')",
 						},
 					},
-					"required": []string{"query"},
+					"required": []string{"query", "question"},
 				},
 			},
 		},

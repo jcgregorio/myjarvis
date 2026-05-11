@@ -45,8 +45,8 @@ func main() {
 
 	llm := NewLLMClient(cfg.OllamaURL, cfg.Model)
 
-	vault := NewVaultSearcher(obsidianRepo, llm)
-	ha.SetVault(vault)
+	rag := NewRAGSearcher(NewRAGClient(cfg.RAGURL), llm)
+	ha.SetRAG(rag)
 
 	listNames, err := FetchLists()
 	if err != nil {
@@ -376,6 +376,7 @@ type Config struct {
 	VADModelPath string
 	PiperAddr    string
 	AudioPort    int
+	RAGURL       string
 }
 
 func configFromEnv() Config {
@@ -393,6 +394,7 @@ func configFromEnv() Config {
 		VADModelPath: os.Getenv("VAD_MODEL_PATH"),
 		PiperAddr:    os.Getenv("PIPER_ADDR"),
 		AudioPort:    audioPort,
+		RAGURL:       os.Getenv("RAG_URL"),
 	}
 	if cfg.HAURL == "" {
 		log.Fatal("HA_URL environment variable is required (e.g. http://homeassistant.local:8123)")
@@ -420,6 +422,9 @@ func configFromEnv() Config {
 	}
 	if cfg.AudioPort == 0 {
 		cfg.AudioPort = 8085
+	}
+	if cfg.RAGURL == "" {
+		cfg.RAGURL = "http://192.168.1.145:8011"
 	}
 	if v := os.Getenv("OBSIDIAN_REPO"); v != "" {
 		obsidianRepo = v

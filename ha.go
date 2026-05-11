@@ -19,7 +19,7 @@ type HAClient struct {
 	http     *http.Client
 	mu       sync.RWMutex
 	nameToID map[string]string // friendly name → entity_id
-	vault    *VaultSearcher
+	rag      *RAGSearcher
 }
 
 func NewHAClient(baseURL, token string) *HAClient {
@@ -103,8 +103,8 @@ type ToolCall struct {
 	Args string
 }
 
-// ExecuteToolCall dispatches a tool call. For vault tools (search_notes,
-// summarize_notes) it needs a VaultSearcher, which is set via SetVault.
+// ExecuteToolCall dispatches a tool call. For RAG tools (search_notes,
+// search_wikipedia) it needs a RAGSearcher, which is set via SetRAG.
 func (h *HAClient) ExecuteToolCall(ctx context.Context, tc ToolCall) (string, error) {
 	switch tc.Name {
 	case "set_state":
@@ -124,22 +124,22 @@ func (h *HAClient) ExecuteToolCall(ctx context.Context, tc ToolCall) (string, er
 	case "add_to_list":
 		return "", h.executeAddToList(ctx, tc.Args)
 	case "search_notes":
-		if h.vault == nil {
-			return "", fmt.Errorf("vault not configured")
+		if h.rag == nil {
+			return "", fmt.Errorf("rag not configured")
 		}
-		return h.vault.SearchNotes(ctx, tc.Args)
-	case "summarize_notes":
-		if h.vault == nil {
-			return "", fmt.Errorf("vault not configured")
+		return h.rag.AnswerFromNotes(ctx, tc.Args)
+	case "search_wikipedia":
+		if h.rag == nil {
+			return "", fmt.Errorf("rag not configured")
 		}
-		return h.vault.SummarizeNotes(ctx, tc.Args)
+		return h.rag.AnswerFromWikipedia(ctx, tc.Args)
 	default:
 		return "", fmt.Errorf("unknown tool: %s", tc.Name)
 	}
 }
 
-func (h *HAClient) SetVault(v *VaultSearcher) {
-	h.vault = v
+func (h *HAClient) SetRAG(r *RAGSearcher) {
+	h.rag = r
 }
 
 func (h *HAClient) executeSetState(ctx context.Context, args string) error {
