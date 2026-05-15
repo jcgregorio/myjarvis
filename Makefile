@@ -50,10 +50,10 @@ test:
 	go test ./...
 
 deploy:
-	docker compose build && docker compose up -d
+	docker compose build myjarvis && docker compose up -d myjarvis
 
 restart:
-	docker compose restart
+	docker compose restart myjarvis
 
 logs:
 	docker logs -f myjarvis 2>&1 | grep -v "^Schema error:"
