@@ -142,7 +142,7 @@ func main() {
 		}
 		if len(vr.toolCalls) == 0 {
 			log.Printf("[voice] %s: LLM reply (no tool call): %s", device, vr.reply)
-			voiceMQTT.SignalError(device)
+			speakToDevice(device, "Sorry, I don't know how to do that.", tts, audioSrv, voiceMQTT)
 			return
 		}
 
