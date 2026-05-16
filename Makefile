@@ -1,4 +1,4 @@
-MODEL     ?= qwen3:14b-64k
+MODEL     ?= granite4:latest
 HA_URL    ?= http://homeassistant.local:8123
 HA_TOKEN  ?= $(error HA_TOKEN is required — export HA_TOKEN=<your-long-lived-access-token>)
 OLLAMA_URL ?= http://192.168.1.145:11434/v1
@@ -6,7 +6,7 @@ OLLAMA_URL ?= http://192.168.1.145:11434/v1
 GOBIN := $(shell go env GOPATH)/bin
 ESPHOME := $(HOME)/.venv/esphome/bin/esphome
 
-.PHONY: run dry-run list tools ollama test install flash-kitchen flash-living-room flash-kitchen-test ota ota-kitchen ota-living-room logs deploy restart
+.PHONY: run dry-run list tools ollama test test-routing install flash-kitchen flash-living-room flash-kitchen-test ota ota-kitchen ota-living-room logs deploy restart
 
 install:
 	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" go install .
@@ -48,6 +48,12 @@ ollama:
 
 test:
 	go test ./...
+
+# Live routing + latency suite. Hits the real LLM; skipped by `make test`.
+test-routing:
+	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" \
+	OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
+	go test -run TestRouting -v -timeout 30m .
 
 deploy:
 	docker compose build myjarvis && docker compose up -d myjarvis

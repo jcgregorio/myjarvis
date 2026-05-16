@@ -35,7 +35,7 @@ make tools
 | `HA_TOKEN` | Long-lived access token for HA REST API | |
 | `MQTT_URL` | MQTT broker URL | `mqtt://192.168.1.x:1883` |
 | `OLLAMA_URL` | OpenAI-compatible endpoint for LLM | `http://192.168.1.145:11434/v1` |
-| `MODEL` | Ollama model name | `qwen3:14b-64k` (default in Makefile: `qwen2.5:7b`) |
+| `MODEL` | Ollama model name | `granite4:latest` (default in Makefile) |
 | `STT_URL` | faster-whisper server URL | `http://localhost:8000` |
 | `LISTS_DIR` | Obsidian vault lists directory | `/home/jcgregorio/obsidian/Lists` |
 | `RAG_URL` | Hybrid-search sidecar on goldmine-prime | `http://192.168.1.145:8011` |
@@ -66,7 +66,7 @@ ESP32 (microWakeWord) --MQTT--> AudioRouter --VAD--> STT --> LLM --> HA REST API
 
 ## Infrastructure
 
-- **LLM server**: goldmine-prime (192.168.1.145) running Ollama with `qwen3:14b-64k` on RTX 5000 (16GB VRAM)
+- **LLM server**: goldmine-prime (192.168.1.145) running Ollama with `granite4:latest` on RTX 5000 (16GB VRAM)
 - **STT server**: faster-whisper instance
 - **MQTT broker**: local network broker
 - **Home Assistant**: existing install with REST API enabled
