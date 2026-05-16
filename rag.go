@@ -167,19 +167,20 @@ func (s *RAGSearcher) AnswerFromWikipedia(ctx context.Context, args string) (str
 	}
 
 	question := p.effectiveQuestion()
-	brevity := "Keep your answer short — just the key fact or facts."
+	brevity := "Answer in one or two short sentences — the direct answer only, no extra background."
 	if wantsVerbose(question) {
 		brevity = "Give a thorough answer with relevant details."
 	}
 
 	return s.llm.ChatPlain(ctx,
-		"You are a helpful home assistant. Answer questions using the provided Wikipedia articles. "+
-			"Give answers suitable for text-to-speech — no markdown, no lists, no special formatting. "+
-			"You must always begin your answer by stating which Wikipedia article it is drawn from, "+
-			`in the form "According to the Wikipedia article on X, ...". `+
-			"This attribution is required in every answer. "+
+		"You are a home assistant answering a spoken question using the provided Wikipedia excerpts. "+
+			"Pick only the single excerpt that actually answers the question and ignore the rest. "+
+			`Begin with "According to the Wikipedia article on X, " naming that one article, then give the answer. `+
+			"If none of the excerpts actually answer the question, say you don't have that information — "+
+			"do not stitch together or pad with unrelated facts. "+
+			"Plain text only, for text-to-speech: no markdown, no lists, no special formatting. "+
 			brevity,
-		fmt.Sprintf("Here are some Wikipedia articles:\n\n%s\nQuestion: %s", b.String(), question),
+		fmt.Sprintf("Here are some Wikipedia excerpts:\n\n%s\nQuestion: %s", b.String(), question),
 	)
 }
 
