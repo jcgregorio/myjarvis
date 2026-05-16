@@ -175,8 +175,9 @@ func (s *RAGSearcher) AnswerFromWikipedia(ctx context.Context, args string) (str
 	return s.llm.ChatPlain(ctx,
 		"You are a helpful home assistant. Answer questions using the provided Wikipedia articles. "+
 			"Give answers suitable for text-to-speech — no markdown, no lists, no special formatting. "+
-			"Briefly mention which Wikipedia article you drew the answer from "+
-			`(e.g. "according to the Wikipedia article on Transistors"). `+
+			"You must always begin your answer by stating which Wikipedia article it is drawn from, "+
+			`in the form "According to the Wikipedia article on X, ...". `+
+			"This attribution is required in every answer. "+
 			brevity,
 		fmt.Sprintf("Here are some Wikipedia articles:\n\n%s\nQuestion: %s", b.String(), question),
 	)
