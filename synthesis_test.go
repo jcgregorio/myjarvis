@@ -50,6 +50,12 @@ func synthCases() []synthCase {
 			ci(`austen`)},
 		{"boiling point of water", "What is the boiling point of water in Fahrenheit?",
 			ci(`\b212\b`)},
+		// Adversarial: these retrieve disambiguation pages first, so they
+		// exercise the re-rank + adversarial re-query path.
+		{"Eiffel Tower height", "How tall is the Eiffel Tower?",
+			ci(`3(0[0-9]|1[0-9]|2[0-9])\s*(m|metre|meter)|1,?0\d\d\s*(ft|feet)`)},
+		{"capital of France", "What is the capital of France?",
+			ci(`paris`)},
 	}
 }
 
@@ -146,6 +152,11 @@ func TestSynthesis(t *testing.T) {
 				truncate(strings.ReplaceAll(ans, "\n", " "), 100))
 			if !r.ok {
 				t.Errorf("expected fact /%s/ not found in answer", c.fact)
+			}
+			// Adversarial: the answer must never be sourced from a
+			// disambiguation page — re-rank + re-query should prevent it.
+			if strings.Contains(strings.ToLower(ans), "disambiguation") {
+				t.Errorf("answer references a disambiguation page: %q", truncate(ans, 120))
 			}
 		})
 	}

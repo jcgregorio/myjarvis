@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -94,7 +95,70 @@ func (a searchArgs) effectiveQuestion() string {
 	return a.Query
 }
 
-const ragLimit = 5
+const ragLimit = 5  // excerpts fed to synthesis
+const ragFetch = 12 // candidates fetched before re-ranking/filtering
+
+var disambigRe = regexp.MustCompile(`(?i)\(disambiguation\)\s*$`)
+var indexyRe = regexp.MustCompile(`(?i)^(list|index|outline) of `)
+
+// reRankWikiHits drops Wikipedia disambiguation pages (navigation only —
+// no prose to synthesize) and demotes "List/Index/Outline of …" pages
+// below real articles, preserving relative order otherwise. topWasJunk
+// reports whether the original #1 hit was a disambiguation/index page —
+// the signal that triggers an adversarial re-query.
+func reRankWikiHits(hits []RAGHit) (cleaned []RAGHit, topWasJunk bool) {
+	var primary, secondary []RAGHit
+	for i, h := range hits {
+		title := strings.TrimSpace(payloadString(h.Payload, "title"))
+		switch {
+		case disambigRe.MatchString(title):
+			if i == 0 {
+				topWasJunk = true
+			}
+			// dropped entirely — a disambiguation page has no content
+		case indexyRe.MatchString(title):
+			if i == 0 {
+				topWasJunk = true
+			}
+			secondary = append(secondary, h)
+		default:
+			primary = append(primary, h)
+		}
+	}
+	return append(primary, secondary...), topWasJunk
+}
+
+// reformulateQuery asks the LLM for a single better Wikipedia article
+// title when the first retrieval surfaced mostly disambiguation/index
+// pages. Returns "" on any failure (caller falls back to first results).
+func (s *RAGSearcher) reformulateQuery(ctx context.Context, question string, hits []RAGHit) string {
+	var titles []string
+	for i, h := range hits {
+		if i >= 6 {
+			break
+		}
+		if t := strings.TrimSpace(payloadString(h.Payload, "title")); t != "" {
+			titles = append(titles, t)
+		}
+	}
+	out, err := s.llm.ChatPlain(ctx,
+		"You generate Wikipedia search queries. Reply with ONLY a short search "+
+			"phrase naming the single most likely Wikipedia article title that "+
+			"answers the question. No explanation, no quotes.",
+		fmt.Sprintf("Question: %s\nA prior search returned mostly disambiguation "+
+			"or list pages: %s\nGive the best specific Wikipedia article title to search for.",
+			question, strings.Join(titles, "; ")),
+	)
+	if err != nil {
+		log.Printf("[rag] reformulate error: %v", err)
+		return ""
+	}
+	out = strings.TrimSpace(out)
+	if out == "" || len(out) > 80 { // guard against a rambling reply
+		return ""
+	}
+	return out
+}
 
 func (s *RAGSearcher) AnswerFromNotes(ctx context.Context, args string) (string, error) {
 	var p searchArgs
@@ -159,7 +223,7 @@ func (s *RAGSearcher) AnswerFromWikipedia(ctx context.Context, args string) (str
 		retr = q + " " + qn
 	}
 
-	hits, err := s.rag.Search(ctx, "WIKIPEDIA_ENGLISH", retr, ragLimit)
+	hits, err := s.rag.Search(ctx, "WIKIPEDIA_ENGLISH", retr, ragFetch)
 	if err != nil {
 		return "", err
 	}
@@ -167,9 +231,34 @@ func (s *RAGSearcher) AnswerFromWikipedia(ctx context.Context, args string) (str
 		return "I couldn't find a Wikipedia article that answers that.", nil
 	}
 
-	log.Printf("[rag] wiki: %d hits for %q", len(hits), q)
+	cleaned, topWasJunk := reRankWikiHits(hits)
+
+	// Adversarial second pass: if the best hit was a disambiguation /
+	// index page (or nothing usable survived), ask the LLM for a better
+	// article title and retrieve once more. Bounded to a single retry.
+	if topWasJunk || len(cleaned) == 0 {
+		if alt := s.reformulateQuery(ctx, p.effectiveQuestion(), hits); alt != "" {
+			if h2, e2 := s.rag.Search(ctx, "WIKIPEDIA_ENGLISH", alt, ragFetch); e2 == nil && len(h2) > 0 {
+				c2, junk2 := reRankWikiHits(h2)
+				if len(c2) > 0 && !junk2 {
+					log.Printf("[rag] wiki: adversarial re-query %q -> %d clean hits", alt, len(c2))
+					cleaned = c2
+				} else if len(cleaned) == 0 {
+					cleaned = c2
+				}
+			}
+		}
+	}
+	if len(cleaned) == 0 {
+		return "I couldn't find a Wikipedia article that answers that.", nil
+	}
+	if len(cleaned) > ragLimit {
+		cleaned = cleaned[:ragLimit]
+	}
+
+	log.Printf("[rag] wiki: %d hits for %q (topWasJunk=%v)", len(cleaned), q, topWasJunk)
 	var b strings.Builder
-	for i, h := range hits {
+	for i, h := range cleaned {
 		title := payloadString(h.Payload, "title")
 		url := payloadString(h.Payload, "url")
 		content := payloadString(h.Payload, "content")
