@@ -88,6 +88,61 @@ func TestNormalizeForTTS(t *testing.T) {
 			in:   "Built in 1998.",
 			want: "Built in nineteen ninety eight.",
 		},
+		{
+			name: "unit_ft_plural",
+			in:   "The Eiffel Tower is 330 metres (1,083 ft) tall.",
+			want: "The Eiffel Tower is 330 metres (1,083 feet) tall.",
+		},
+		{
+			name: "unit_ft_singular",
+			in:   "About 1 ft of snow.",
+			want: "About 1 foot of snow.",
+		},
+		{
+			name: "unit_km",
+			in:   "It is 5 km away.",
+			want: "It is 5 kilometers away.",
+		},
+		{
+			name: "unit_lbs",
+			in:   "It weighs 12 lbs.",
+			want: "It weighs 12 pounds.",
+		},
+		{
+			name: "unit_mph_not_mi",
+			in:   "Up to 60 mph.",
+			want: "Up to 60 miles per hour.",
+		},
+		{
+			name: "unit_no_space",
+			in:   "A 5km route.",
+			want: "A 5 kilometers route.",
+		},
+		{
+			name: "deg_fahrenheit",
+			in:   "Water boils at 212°F.",
+			want: "Water boils at 212 degrees Fahrenheit.",
+		},
+		{
+			name: "deg_celsius_spaced",
+			in:   "Around 100 °C.",
+			want: "Around 100 degrees Celsius.",
+		},
+		{
+			name: "deg_bare",
+			in:   "Turn it 90°.",
+			want: "Turn it 90 degrees.",
+		},
+		{
+			name: "ambiguous_in_untouched",
+			in:   "There are 5 in the box.",
+			want: "There are 5 in the box.",
+		},
+		{
+			name: "ambiguous_m_untouched",
+			in:   "Run 20 m of cable.",
+			want: "Run 20 m of cable.",
+		},
 	}
 
 	for _, tt := range tests {

@@ -14,7 +14,67 @@ func NormalizeForTTS(text string) string {
 	text = yearRe.ReplaceAllStringFunc(text, expandYear)
 	text = dollarRe.ReplaceAllStringFunc(text, expandDollar)
 	text = percentRe.ReplaceAllStringFunc(text, expandPercent)
+	text = degRe.ReplaceAllStringFunc(text, expandDeg)
+	text = unitRe.ReplaceAllStringFunc(text, expandUnit)
 	return text
+}
+
+// A number followed by a degree symbol, e.g. "212°F", "30 °C", "90°".
+var degRe = regexp.MustCompile(`(\d[\d,]*(?:\.\d+)?)\s?°\s?([CF])?`)
+
+func expandDeg(s string) string {
+	m := degRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	unit := "degrees"
+	if m[1] == "1" {
+		unit = "degree"
+	}
+	switch m[2] {
+	case "C":
+		unit += " Celsius"
+	case "F":
+		unit += " Fahrenheit"
+	}
+	return m[1] + " " + unit
+}
+
+// A number followed by a unit abbreviation, e.g. "1,083 ft", "5km".
+// Deliberately conservative: only well-known units that are NOT common
+// English words, and only when a number precedes them, so prose like
+// "5 in the box" or "20 m of cable" is left alone. ("m"/"in"/"g"/"s"
+// are intentionally excluded as too ambiguous; Wikipedia mostly spells
+// out metres/grams anyway.)
+var unitRe = regexp.MustCompile(`(?i)\b(\d[\d,]*(?:\.\d+)?)\s?(ft|mph|mi|km|cm|mm|kg|lbs|lb)\b`)
+
+// abbrev → {singular, plural}
+var unitNames = map[string][2]string{
+	"ft":  {"foot", "feet"},
+	"mi":  {"mile", "miles"},
+	"mph": {"mile per hour", "miles per hour"},
+	"km":  {"kilometer", "kilometers"},
+	"cm":  {"centimeter", "centimeters"},
+	"mm":  {"millimeter", "millimeters"},
+	"kg":  {"kilogram", "kilograms"},
+	"lb":  {"pound", "pounds"},
+	"lbs": {"pound", "pounds"},
+}
+
+func expandUnit(s string) string {
+	m := unitRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	names, ok := unitNames[strings.ToLower(m[2])]
+	if !ok {
+		return s
+	}
+	word := names[1]
+	if m[1] == "1" {
+		word = names[0]
+	}
+	return m[1] + " " + word
 }
 
 // M/D/YYYY, MM/DD/YYYY, or M/D/YY (not embedded in longer numbers)

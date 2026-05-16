@@ -132,7 +132,9 @@ func (s *RAGSearcher) AnswerFromNotes(ctx context.Context, args string) (string,
 
 	return s.llm.ChatPlain(ctx,
 		"You are a helpful home assistant. Answer questions using the provided documents. "+
-			"Give answers suitable for text-to-speech — no markdown, no lists, no special formatting. "+
+			"Give answers suitable for text-to-speech — no markdown, no lists, no special formatting; "+
+			"write measurements and symbols as spoken words (say 'feet' not 'ft', 'percent' not '%') "+
+			"and avoid parenthetical unit conversions. "+
 			brevity,
 		fmt.Sprintf("Here are some documents from my notes:\n\n%s\nQuestion: %s", b.String(), question),
 	)
@@ -187,7 +189,9 @@ func (s *RAGSearcher) AnswerFromWikipedia(ctx context.Context, args string) (str
 			`Begin with "According to the Wikipedia article on X, " naming that one article, then give the answer. `+
 			"If none of the excerpts actually answer the question, say you don't have that information — "+
 			"do not stitch together or pad with unrelated facts. "+
-			"Plain text only, for text-to-speech: no markdown, no lists, no special formatting. "+
+			"Plain text only, for text-to-speech: no markdown, no lists, no special formatting; "+
+			"write measurements and symbols as spoken words (say 'feet' not 'ft', "+
+			"'degrees Celsius' not '°C', 'percent' not '%') and avoid parenthetical unit conversions. "+
 			brevity,
 		fmt.Sprintf("Here are some Wikipedia excerpts:\n\n%s\nQuestion: %s", b.String(), question),
 	)
