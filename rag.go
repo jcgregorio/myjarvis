@@ -147,8 +147,17 @@ func (s *RAGSearcher) AnswerFromWikipedia(ctx context.Context, args string) (str
 	if q == "" {
 		return "", fmt.Errorf("empty query")
 	}
+	// Retrieve on the keyword query AND the raw question. Benchmarked
+	// (retrieval_test.go) at 10/12 expected-article recall vs 8/12 for
+	// the keyword query alone, with the best mean rank — the LLM's
+	// keyword distillation sometimes drops the term that surfaces the
+	// canonical article (e.g. "Mount Everest" kw → rank 7; question → 2).
+	retr := q
+	if qn := p.effectiveQuestion(); qn != "" && qn != q {
+		retr = q + " " + qn
+	}
 
-	hits, err := s.rag.Search(ctx, "WIKIPEDIA_ENGLISH", q, ragLimit)
+	hits, err := s.rag.Search(ctx, "WIKIPEDIA_ENGLISH", retr, ragLimit)
 	if err != nil {
 		return "", err
 	}
