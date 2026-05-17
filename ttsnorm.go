@@ -10,6 +10,15 @@ import (
 // NormalizeForTTS rewrites dates, prices, and other numeric formats into
 // words that a TTS engine will pronounce naturally.
 func NormalizeForTTS(text string) string {
+	// Scientific notation first: fold Unicode superscripts to a caret
+	// form, then expand "× 10^n", standalone "10^n", and e-notation to
+	// spoken words. (Piper otherwise drops the superscript exponent.)
+	text = supExpRe.ReplaceAllStringFunc(text, supToCaret)
+	text = sciRe.ReplaceAllStringFunc(text, expandSci)
+	text = stdExpRe.ReplaceAllStringFunc(text, expandStdExp)
+	text = eNotRe.ReplaceAllStringFunc(text, expandENot)
+	text = multSignRe.ReplaceAllString(text, " times ")
+
 	text = dateRe.ReplaceAllStringFunc(text, expandDate)
 	text = yearRe.ReplaceAllStringFunc(text, expandYear)
 	text = dollarRe.ReplaceAllStringFunc(text, expandDollar)
@@ -18,6 +27,73 @@ func NormalizeForTTS(text string) string {
 	text = unitRe.ReplaceAllStringFunc(text, expandUnit)
 	return text
 }
+
+// --- scientific notation ---------------------------------------------
+
+var superscript = map[rune]rune{
+	'⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5',
+	'⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-', '⁺': '+',
+}
+
+// "10" followed by a run of Unicode superscripts → "10^<plain>"
+var supExpRe = regexp.MustCompile(`10([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)`)
+
+func supToCaret(s string) string {
+	var b strings.Builder
+	b.WriteString("10^")
+	for _, r := range s[len("10"):] {
+		if v, ok := superscript[r]; ok {
+			b.WriteRune(v)
+		}
+	}
+	return b.String()
+}
+
+func expWords(exp string) string {
+	sign := ""
+	if strings.HasPrefix(exp, "-") {
+		sign, exp = "negative ", exp[1:]
+	} else if strings.HasPrefix(exp, "+") {
+		exp = exp[1:]
+	}
+	return "10 to the power of " + sign + exp
+}
+
+// mantissa × 10^n  (× may be the Unicode sign, x, X or *)
+var sciRe = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:×|x|X|\*)\s*10\^([+-]?\d+)`)
+
+func expandSci(s string) string {
+	m := sciRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	return m[1] + " times " + expWords(m[2])
+}
+
+// standalone 10^n not already consumed by sciRe
+var stdExpRe = regexp.MustCompile(`\b10\^([+-]?\d+)`)
+
+func expandStdExp(s string) string {
+	m := stdExpRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	return expWords(m[1])
+}
+
+// e-notation: 6.022e23, 1.6E-19
+var eNotRe = regexp.MustCompile(`\b(\d+(?:\.\d+)?)[eE]([+-]?\d+)\b`)
+
+func expandENot(s string) string {
+	m := eNotRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	return m[1] + " times " + expWords(m[2])
+}
+
+// Any leftover multiplication sign between things → "times".
+var multSignRe = regexp.MustCompile(`\s*×\s*`)
 
 // A number followed by a degree symbol, e.g. "212°F", "30 °C", "90°".
 var degRe = regexp.MustCompile(`(\d[\d,]*(?:\.\d+)?)\s?°\s?([CF])?`)

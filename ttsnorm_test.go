@@ -143,6 +143,36 @@ func TestNormalizeForTTS(t *testing.T) {
 			in:   "Run 20 m of cable.",
 			want: "Run 20 m of cable.",
 		},
+		{
+			name: "sci_superscript_negative",
+			in:   "A proton weighs about 1.67 × 10⁻²⁷ kilograms.",
+			want: "A proton weighs about 1.67 times 10 to the power of negative 27 kilograms.",
+		},
+		{
+			name: "sci_superscript_positive",
+			in:   "Avogadro is 6.022 × 10²³ per mole.",
+			want: "Avogadro is 6.022 times 10 to the power of 23 per mole.",
+		},
+		{
+			name: "sci_caret_with_unit",
+			in:   "Electron mass 9.11 x 10^-31 kg.",
+			want: "Electron mass 9.11 times 10 to the power of negative 31 kilograms.",
+		},
+		{
+			name: "sci_enotation",
+			in:   "Charge is 1.6e-19 coulombs.",
+			want: "Charge is 1.6 times 10 to the power of negative 19 coulombs.",
+		},
+		{
+			name: "sci_standalone_exponent",
+			in:   "It scales as 10⁻³ here.",
+			want: "It scales as 10 to the power of negative 3 here.",
+		},
+		{
+			name: "mult_sign_between_numbers",
+			in:   "The grid is 8 × 8.",
+			want: "The grid is 8 times 8.",
+		},
 	}
 
 	for _, tt := range tests {
