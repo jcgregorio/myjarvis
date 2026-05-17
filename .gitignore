@@ -36,3 +36,6 @@ go.work.sum
 # Benchmark sweep logs (large, transient; *-results.csv is kept)
 bench.log
 bench-synth.log
+
+# ESPHome OTA build/upload log (transient)
+ota.log
