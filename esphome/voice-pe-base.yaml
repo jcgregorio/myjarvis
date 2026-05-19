@@ -254,8 +254,10 @@ sensor:
     pin_b: GPIO18
     on_clockwise:
       - media_player.volume_up: voice_media_player
+      - script.execute: show_volume
     on_anticlockwise:
       - media_player.volume_down: voice_media_player
+      - script.execute: show_volume
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +424,24 @@ light:
               it[i] = Color(bright, 0, 0);
             }
             frame++;
+      - addressable_lambda:
+          name: "Volume"
+          update_interval: 50ms
+          lambda: |-
+            // Map the dial's actual travel to a 12-LED gauge. The floor
+            // is volume_min (0.40 — empirically the ring goes empty there);
+            // the top is full scale (1.0) because volume_max does NOT clamp
+            // volume_up on this speaker_source platform, so the dial runs
+            // past 0.85. Dim track for unlit segments so an empty
+            // (near-silent) ring is still visibly a gauge, not "off".
+            const float vmin = 0.40f, vmax = 1.00f;
+            float frac = (id(voice_media_player).volume - vmin) / (vmax - vmin);
+            if (frac < 0.0f) frac = 0.0f;
+            if (frac > 1.0f) frac = 1.0f;
+            int lit = (int) lroundf(frac * it.size());
+            for (int i = 0; i < it.size(); i++) {
+              it[i] = (i < lit) ? Color(0, 150, 255) : Color(8, 8, 8);
+            }
 
 # ---------------------------------------------------------------------------
 # XMOS XU316 voice DSP — handles echo cancellation, noise removal, AGC
@@ -479,6 +499,27 @@ micro_wake_word:
 # Scripts
 # ---------------------------------------------------------------------------
 script:
+  # show_volume: light the LED ring as a volume gauge while the dial is
+  # turned, then clear it 1.5s after the last tick. mode:restart keeps
+  # the gauge up during continuous spinning. The guard avoids turning
+  # the ring off mid-interaction (listening/announcing); in that rare
+  # case the next led event reasserts the correct effect.
+  - id: show_volume
+    mode: restart
+    then:
+      - light.turn_on:
+          id: voice_assistant_leds
+          effect: "Volume"
+      - delay: 1500ms
+      - if:
+          condition:
+            and:
+              - not:
+                  media_player.is_announcing: voice_media_player
+              - lambda: "return !id(streaming_audio);"
+          then:
+            - light.turn_off: voice_assistant_leds
+
   # start_listening: disable hey_jarvis model (mic stays open via mWW VAD),
   # set flag so on_data publishes chunks, stream to MQTT.
   # Auto-stops after 8s if not manually cancelled (prevents runaway streaming).
