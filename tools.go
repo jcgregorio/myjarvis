@@ -10,7 +10,7 @@ import (
 // BuildTools constructs the OpenAI tool schema from the list of HA entities.
 // The entity_id enum is populated dynamically so the LLM can only reference
 // entities that actually exist in the HA instance.
-func BuildTools(entities []HAEntity, listNames []string) []openai.ChatCompletionToolParam {
+func BuildTools(entities []HAEntity, listNames []string, propertyNames []string) []openai.ChatCompletionToolParam {
 	entityNames := make([]any, 0)
 	var automationNames []any
 	for _, e := range entities {
@@ -25,6 +25,10 @@ func BuildTools(entities []HAEntity, listNames []string) []openai.ChatCompletion
 	listEnum := make([]any, len(listNames))
 	for i, n := range listNames {
 		listEnum[i] = n
+	}
+	propertyEnum := make([]any, len(propertyNames))
+	for i, n := range propertyNames {
+		propertyEnum[i] = n
 	}
 
 	tools := []openai.ChatCompletionToolParam{
@@ -230,6 +234,40 @@ func BuildTools(entities []HAEntity, listNames []string) []openai.ChatCompletion
 						},
 					},
 					"required": []string{"item"},
+				},
+			},
+		},
+		openai.ChatCompletionToolParam{
+			Function: shared.FunctionDefinitionParam{
+				Name: "log_property_event",
+				Description: openai.String("Record a dated work or activity entry on a real-estate property's log. " +
+					"Use when the user says to log, record, or note that work was done or an event happened for a property " +
+					`(e.g. "log that we spent two days clearing out 5 Myrtle Court", "record that Rick replaced the lock on the shed"). ` +
+					"NOT for shopping or to-do lists (use add_to_list); NOT for answering questions about a property (use search_notes). " +
+					"An outbuilding such as a shed or garage is part of its parent property — pick the parent property here and put the shed detail in the description."),
+				Parameters: shared.FunctionParameters{
+					"type": "object",
+					"properties": map[string]any{
+						"property": map[string]any{
+							"type":        "string",
+							"description": "Which property to log to. Must be one of the known properties.",
+							"enum":        propertyEnum,
+						},
+						"description": map[string]any{
+							"type":        "string",
+							"description": `Short description of the work or event (e.g. "Removed personal items", "Rick replaced the lock on the storage shed").`,
+						},
+						"hours": map[string]any{
+							"type": "integer",
+							"description": "Real-estate work hours we put in. A full work day is 8 hours, so \"three days\" is 24. " +
+								"If the work was done by a third party, or the hours cannot be determined, use 0.",
+						},
+						"when": map[string]any{
+							"type":        "string",
+							"description": `Optional. When it happened: "today" (default), "yesterday", "N days ago", or a YYYY-MM-DD date.`,
+						},
+					},
+					"required": []string{"property", "description", "hours"},
 				},
 			},
 		},

@@ -82,7 +82,7 @@ func TestRetrievalProbe(t *testing.T) {
 
 	llm := NewLLMClient(baseURL, model)
 	rag := NewRAGClient(ragURL)
-	tools := BuildTools(fixtureEntities(), fixtureLists)
+	tools := BuildTools(fixtureEntities(), fixtureLists, nil)
 
 	type tally struct{ hit, sumRank, n int }
 	var byQuery, byQuestion, byBoth tally

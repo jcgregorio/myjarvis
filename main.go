@@ -54,8 +54,14 @@ func main() {
 	}
 	fmt.Printf("Found %d lists.\n", len(listNames))
 
+	propertyNames, err := FetchProperties()
+	if err != nil {
+		log.Printf("Failed to fetch properties (continuing without): %v", err)
+	}
+	fmt.Printf("Found %d properties.\n", len(propertyNames))
+
 	var toolsMu sync.RWMutex
-	tools := BuildTools(entities, listNames)
+	tools := BuildTools(entities, listNames, propertyNames)
 
 	stt := NewSTTClient(cfg.WhisperURL)
 
@@ -248,8 +254,12 @@ func main() {
 			if err != nil {
 				log.Printf("list refresh failed: %v", err)
 			}
+			refreshedProperties, err := FetchProperties()
+			if err != nil {
+				log.Printf("property refresh failed: %v", err)
+			}
 			toolsMu.Lock()
-			tools = BuildTools(updated, refreshedLists)
+			tools = BuildTools(updated, refreshedLists, refreshedProperties)
 			toolsMu.Unlock()
 			log.Printf("refreshed %d entities, %d lists", len(updated), len(refreshedLists))
 		}
@@ -327,7 +337,8 @@ func runTools() {
 	}
 
 	listNames, _ := FetchLists()
-	tools := BuildTools(entities, listNames)
+	propertyNames, _ := FetchProperties()
+	tools := BuildTools(entities, listNames, propertyNames)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(tools); err != nil {

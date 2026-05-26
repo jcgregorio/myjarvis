@@ -123,6 +123,8 @@ func (h *HAClient) ExecuteToolCall(ctx context.Context, tc ToolCall) (string, er
 		return "", CleanLists()
 	case "add_to_list":
 		return "", h.executeAddToList(ctx, tc.Args)
+	case "log_property_event":
+		return h.executeLogPropertyEvent(ctx, tc.Args)
 	case "search_notes":
 		if h.rag == nil {
 			return "", fmt.Errorf("rag not configured")
@@ -253,6 +255,19 @@ func (h *HAClient) executeAddToList(_ context.Context, args string) error {
 		return fmt.Errorf("parse args: %w", err)
 	}
 	return AddToList(p.List, p.Item)
+}
+
+func (h *HAClient) executeLogPropertyEvent(_ context.Context, args string) (string, error) {
+	var p struct {
+		Property    string `json:"property"`
+		Description string `json:"description"`
+		Hours       int    `json:"hours"`
+		When        string `json:"when"`
+	}
+	if err := json.Unmarshal([]byte(args), &p); err != nil {
+		return "", fmt.Errorf("parse args: %w", err)
+	}
+	return LogPropertyEvent(p.Property, p.Hours, p.Description, p.When)
 }
 
 func (h *HAClient) callService(ctx context.Context, domain, service string, body map[string]any) error {

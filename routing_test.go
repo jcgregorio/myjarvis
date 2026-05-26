@@ -43,6 +43,11 @@ func fixtureEntities() []HAEntity {
 
 var fixtureLists = []string{"ShoppingList", "TodoList"}
 
+var fixtureProperties = []string{
+	"5 Myrtle Ct. Ocean Isle Beach 28469",
+	"0 Hayes Run Rd. New Hill NC",
+}
+
 type routeCase struct {
 	category string
 	prompt   string
@@ -96,6 +101,12 @@ var routeCases = []routeCase{
 	{"wiki/search_wikipedia", "Explain how photosynthesis works", "search_wikipedia"},
 	{"wiki/search_wikipedia", "What year did the Berlin Wall fall", "search_wikipedia"},
 	{"wiki/search_wikipedia", "What is the boiling point of water in Fahrenheit", "search_wikipedia"},
+
+	// --- Property activity log ---
+	{"property/log_property_event", "Log that today we finished working three days straight on removing personal items from 5 Myrtle Court", "log_property_event"},
+	{"property/log_property_event", "Log that we had Rick replace the lock on the Hayes Run storage shed", "log_property_event"},
+	{"property/log_property_event", "Record that we spent four hours mowing and trimming at 5 Myrtle Court", "log_property_event"},
+	{"property/log_property_event", "Note that the roof inspection was done yesterday at Hayes Run", "log_property_event"},
 }
 
 type routeResult struct {
@@ -118,7 +129,7 @@ func TestRouting(t *testing.T) {
 	}
 
 	llm := NewLLMClient(baseURL, model)
-	tools := BuildTools(fixtureEntities(), fixtureLists)
+	tools := BuildTools(fixtureEntities(), fixtureLists, fixtureProperties)
 
 	// MYJARVIS_NOTHINK=1 appends qwen3's /no_think soft switch so the
 	// router skips chain-of-thought — used for the latency comparison.
