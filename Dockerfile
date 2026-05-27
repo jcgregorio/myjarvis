@@ -14,7 +14,7 @@ COPY . .
 RUN CGO_ENABLED=1 \
     CGO_CFLAGS="-I/usr/include/onnxruntime" \
     CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" \
-    go build -o /myjarvis .
+    go build -o /myjarvis ./cmd/myjarvis
 
 FROM debian:trixie-slim
 

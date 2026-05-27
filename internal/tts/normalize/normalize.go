@@ -1,0 +1,314 @@
+package normalize
+
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// ForTTS rewrites dates, prices, and other numeric formats into
+// words that a TTS engine will pronounce naturally.
+func ForTTS(text string) string {
+	// Scientific notation first: fold Unicode superscripts to a caret
+	// form, then expand "× 10^n", standalone "10^n", and e-notation to
+	// spoken words. (Piper otherwise drops the superscript exponent.)
+	text = supExpRe.ReplaceAllStringFunc(text, supToCaret)
+	text = sciRe.ReplaceAllStringFunc(text, expandSci)
+	text = stdExpRe.ReplaceAllStringFunc(text, expandStdExp)
+	text = eNotRe.ReplaceAllStringFunc(text, expandENot)
+	text = multSignRe.ReplaceAllString(text, " times ")
+
+	text = dateRe.ReplaceAllStringFunc(text, expandDate)
+	text = yearRe.ReplaceAllStringFunc(text, expandYear)
+	text = dollarRe.ReplaceAllStringFunc(text, expandDollar)
+	text = percentRe.ReplaceAllStringFunc(text, expandPercent)
+	text = degRe.ReplaceAllStringFunc(text, expandDeg)
+	text = unitRe.ReplaceAllStringFunc(text, expandUnit)
+	return text
+}
+
+// --- scientific notation ---------------------------------------------
+
+var superscript = map[rune]rune{
+	'⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5',
+	'⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-', '⁺': '+',
+}
+
+// "10" followed by a run of Unicode superscripts → "10^<plain>"
+var supExpRe = regexp.MustCompile(`10([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)`)
+
+func supToCaret(s string) string {
+	var b strings.Builder
+	b.WriteString("10^")
+	for _, r := range s[len("10"):] {
+		if v, ok := superscript[r]; ok {
+			b.WriteRune(v)
+		}
+	}
+	return b.String()
+}
+
+func expWords(exp string) string {
+	sign := ""
+	if strings.HasPrefix(exp, "-") {
+		sign, exp = "negative ", exp[1:]
+	} else if strings.HasPrefix(exp, "+") {
+		exp = exp[1:]
+	}
+	return "10 to the power of " + sign + exp
+}
+
+// mantissa × 10^n  (× may be the Unicode sign, x, X or *)
+var sciRe = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:×|x|X|\*)\s*10\^([+-]?\d+)`)
+
+func expandSci(s string) string {
+	m := sciRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	return m[1] + " times " + expWords(m[2])
+}
+
+// standalone 10^n not already consumed by sciRe
+var stdExpRe = regexp.MustCompile(`\b10\^([+-]?\d+)`)
+
+func expandStdExp(s string) string {
+	m := stdExpRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	return expWords(m[1])
+}
+
+// e-notation: 6.022e23, 1.6E-19
+var eNotRe = regexp.MustCompile(`\b(\d+(?:\.\d+)?)[eE]([+-]?\d+)\b`)
+
+func expandENot(s string) string {
+	m := eNotRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	return m[1] + " times " + expWords(m[2])
+}
+
+// Any leftover multiplication sign between things → "times".
+var multSignRe = regexp.MustCompile(`\s*×\s*`)
+
+// A number followed by a degree symbol, e.g. "212°F", "30 °C", "90°".
+var degRe = regexp.MustCompile(`(\d[\d,]*(?:\.\d+)?)\s?°\s?([CF])?`)
+
+func expandDeg(s string) string {
+	m := degRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	unit := "degrees"
+	if m[1] == "1" {
+		unit = "degree"
+	}
+	switch m[2] {
+	case "C":
+		unit += " Celsius"
+	case "F":
+		unit += " Fahrenheit"
+	}
+	return m[1] + " " + unit
+}
+
+// A number followed by a unit abbreviation, e.g. "1,083 ft", "5km".
+// Deliberately conservative: only well-known units that are NOT common
+// English words, and only when a number precedes them, so prose like
+// "5 in the box" or "20 m of cable" is left alone. ("m"/"in"/"g"/"s"
+// are intentionally excluded as too ambiguous; Wikipedia mostly spells
+// out metres/grams anyway.)
+var unitRe = regexp.MustCompile(`(?i)\b(\d[\d,]*(?:\.\d+)?)\s?(ft|mph|mi|km|cm|mm|kg|lbs|lb)\b`)
+
+// abbrev → {singular, plural}
+var unitNames = map[string][2]string{
+	"ft":  {"foot", "feet"},
+	"mi":  {"mile", "miles"},
+	"mph": {"mile per hour", "miles per hour"},
+	"km":  {"kilometer", "kilometers"},
+	"cm":  {"centimeter", "centimeters"},
+	"mm":  {"millimeter", "millimeters"},
+	"kg":  {"kilogram", "kilograms"},
+	"lb":  {"pound", "pounds"},
+	"lbs": {"pound", "pounds"},
+}
+
+func expandUnit(s string) string {
+	m := unitRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	names, ok := unitNames[strings.ToLower(m[2])]
+	if !ok {
+		return s
+	}
+	word := names[1]
+	if m[1] == "1" {
+		word = names[0]
+	}
+	return m[1] + " " + word
+}
+
+// M/D/YYYY, MM/DD/YYYY, or M/D/YY (not embedded in longer numbers)
+var dateRe = regexp.MustCompile(`\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b`)
+
+var months = []string{
+	"", "January", "February", "March", "April", "May", "June",
+	"July", "August", "September", "October", "November", "December",
+}
+
+func expandDate(s string) string {
+	m := dateRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	month, _ := strconv.Atoi(m[1])
+	day, _ := strconv.Atoi(m[2])
+	year, _ := strconv.Atoi(m[3])
+	if month < 1 || month > 12 {
+		return s
+	}
+	// Expand 2-digit year: 00-49 → 2000s, 50-99 → 1900s
+	if year < 100 {
+		if year < 50 {
+			year += 2000
+		} else {
+			year += 1900
+		}
+	}
+	return fmt.Sprintf("%s %s, %s", months[month], ordinal(day), spellYear(year))
+}
+
+func ordinal(n int) string {
+	suffix := "th"
+	switch n % 10 {
+	case 1:
+		if n%100 != 11 {
+			suffix = "st"
+		}
+	case 2:
+		if n%100 != 12 {
+			suffix = "nd"
+		}
+	case 3:
+		if n%100 != 13 {
+			suffix = "rd"
+		}
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
+}
+
+// Standalone 4-digit years (1900–2099) in prose, not preceded by $ or /
+var yearRe = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
+
+func expandYear(s string) string {
+	m := yearRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	y, _ := strconv.Atoi(m[1])
+	return spellYear(y)
+}
+
+func spellYear(y int) string {
+	if y == 2000 {
+		return "two thousand"
+	}
+	if y > 2000 && y <= 2009 {
+		return fmt.Sprintf("two thousand %s", smallNumber(y-2000))
+	}
+	if y >= 2010 && y <= 2099 {
+		return fmt.Sprintf("twenty %s", smallNumber(y-2000))
+	}
+	// 1900-1999: "nineteen seventy six"
+	if y >= 1900 && y <= 1999 {
+		return fmt.Sprintf("nineteen %s", smallNumber(y-1900))
+	}
+	return strconv.Itoa(y)
+}
+
+var ones = []string{"", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"}
+var teens = []string{"ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"}
+var tens = []string{"", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"}
+
+func smallNumber(n int) string {
+	if n == 0 {
+		return ""
+	}
+	if n < 10 {
+		return ones[n]
+	}
+	if n < 20 {
+		return teens[n-10]
+	}
+	t := tens[n/10]
+	o := ones[n%10]
+	if o != "" {
+		return t + " " + o
+	}
+	return t
+}
+
+// $1,234,567 or $1234567 or $1,234.56 — optional cents
+var dollarRe = regexp.MustCompile(`\$[\d,]+(?:\.\d{1,2})?`)
+
+func expandDollar(s string) string {
+	// Strip $ and commas
+	clean := strings.ReplaceAll(s[1:], ",", "")
+
+	parts := strings.SplitN(clean, ".", 2)
+	whole, _ := strconv.ParseInt(parts[0], 10, 64)
+	cents := int64(0)
+	if len(parts) == 2 {
+		cents, _ = strconv.ParseInt(parts[1], 10, 64)
+		// Handle single digit cents: $1.5 → 50 cents
+		if len(parts[1]) == 1 {
+			cents *= 10
+		}
+	}
+
+	var result string
+	switch {
+	case whole >= 1_000_000:
+		millions := whole / 1_000_000
+		remainder := whole % 1_000_000
+		if remainder == 0 {
+			result = fmt.Sprintf("%d million dollars", millions)
+		} else if remainder%1000 == 0 {
+			result = fmt.Sprintf("%d million %d thousand dollars", millions, remainder/1000)
+		} else {
+			result = fmt.Sprintf("%d million %d dollars", millions, remainder)
+		}
+	case whole >= 1000:
+		thousands := whole / 1000
+		remainder := whole % 1000
+		if remainder == 0 {
+			result = fmt.Sprintf("%d thousand dollars", thousands)
+		} else {
+			result = fmt.Sprintf("%d thousand %d dollars", thousands, remainder)
+		}
+	default:
+		result = fmt.Sprintf("%d dollars", whole)
+	}
+
+	if cents > 0 {
+		result += fmt.Sprintf(" and %d cents", cents)
+	}
+
+	return result
+}
+
+// 5.25% or 0%
+var percentRe = regexp.MustCompile(`(\d+(?:\.\d+)?)%`)
+
+func expandPercent(s string) string {
+	m := percentRe.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	return m[1] + " percent"
+}
