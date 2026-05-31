@@ -47,7 +47,7 @@ ollama:
 	docker exec ollama ollama pull $(MODEL)
 
 test:
-	go test ./...
+	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" go test ./...
 
 # Live routing + latency suite. Hits the real LLM; skipped by `make test`.
 test-routing:

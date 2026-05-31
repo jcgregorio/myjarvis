@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -34,7 +35,7 @@ import (
 // applyConfig propagates cross-package side effects of the loaded
 // config (currently: pointing the obsidian-vault package vars at a
 // non-default location).
-func applyConfig(cfg config.Config) {
+func applyConfig(cfg *config.Config) {
 	if cfg.ObsidianRepo != "" {
 		obsidian.SetRepo(cfg.ObsidianRepo)
 		lists.SetDir(cfg.ObsidianRepo + "/Lists")
@@ -43,23 +44,36 @@ func applyConfig(cfg config.Config) {
 }
 
 func main() {
+	action := "main"
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "list":
-			runList()
-			return
+			os.Args = slices.Delete(os.Args, 1, 2)
+			action = "list"
 		case "tools":
-			runTools()
-			return
+			os.Args = slices.Delete(os.Args, 1, 2)
+			action = "tools"
 		}
 	}
 
-	dryRun := flag.Bool("dry-run", false, "Print tool calls without executing them against Home Assistant")
+	cfg := &config.Config{}
+	if err := cfg.Flagset().Parse(os.Args); err != nil {
+		log.Fatalf("Failed parse flags: %s", err)
+	}
 	flag.Parse()
-
-	cfg := config.FromEnv()
 	applyConfig(cfg)
 
+	switch action {
+	case "list":
+		runList(cfg)
+	case "tools":
+		runTools(cfg)
+	case "main":
+		mainAction(cfg)
+	}
+}
+
+func mainAction(cfg *config.Config) {
 	// --- construct deps -------------------------------------------------
 	hc := ha.NewClient(cfg.HAURL, cfg.HAToken)
 	fmt.Println("Fetching Home Assistant entities...")
@@ -125,12 +139,12 @@ func main() {
 	defer cancel()
 	go runner.Run(ctx)
 
-	if *dryRun {
+	if cfg.DryRun {
 		fmt.Println("(dry-run mode: tool calls will be printed but not executed)")
 	}
 
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		runCLI(runner, lc, dispatcher, cfg.Model, *dryRun)
+		runCLI(runner, lc, dispatcher, cfg.Model, cfg.DryRun)
 		return
 	}
 
@@ -190,9 +204,7 @@ func runCLI(runner *voice.Runner, lc *llm.Client, dispatcher *agent.Dispatcher, 
 	}
 }
 
-func runTools() {
-	cfg := config.FromEnv()
-	applyConfig(cfg)
+func runTools(cfg *config.Config) {
 	hc := ha.NewClient(cfg.HAURL, cfg.HAToken)
 
 	entities, err := hc.FetchControllableEntities(context.Background())
@@ -210,9 +222,7 @@ func runTools() {
 	}
 }
 
-func runList() {
-	cfg := config.FromEnv()
-	applyConfig(cfg)
+func runList(cfg *config.Config) {
 	hc := ha.NewClient(cfg.HAURL, cfg.HAToken)
 
 	entities, err := hc.FetchControllableEntities(context.Background())
