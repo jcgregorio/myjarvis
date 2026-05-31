@@ -27,6 +27,35 @@ func TestIsStopCommand(t *testing.T) {
 	}
 }
 
+func TestContainsWakeWord(t *testing.T) {
+	yes := []string{
+		"hey jarvis turn on the kitchen light",
+		"Hey, Jarvis, what's the weather",
+		"JARVIS stop",
+		"jarvis",
+		"hello jarvis",
+	}
+	no := []string{
+		"",
+		// false-positive scenarios: mWW triggered, prebuffer included
+		// real ambient speech, but no wake word in the transcript.
+		"turn on the kitchen light",
+		"the weather is nice",
+		"hey siri",
+		"i think so",
+	}
+	for _, s := range yes {
+		if !ContainsWakeWord(s) {
+			t.Errorf("ContainsWakeWord(%q) = false, want true", s)
+		}
+	}
+	for _, s := range no {
+		if ContainsWakeWord(s) {
+			t.Errorf("ContainsWakeWord(%q) = true, want false", s)
+		}
+	}
+}
+
 func TestRunner_Tools(t *testing.T) {
 	// Construct a Runner without any deps just to exercise Tools()'s
 	// snapshot semantics — proves the package surface is reachable

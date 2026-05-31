@@ -161,6 +161,23 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
+  # Pre-wake-word ring buffer. on_data always pushes the latest PCM chunk
+  # here (with oldest-evicted-when-full); when start_listening fires it
+  # sets prebuffer_pending_flush so on_data drains the buffer to MQTT
+  # before publishing the current chunk. Sized for ~1.5 s of audio at
+  # 16 kHz / 32-bit / stereo = 192 KB.
+  - id: prebuffer
+    type: 'std::vector<std::vector<uint8_t>>'
+    restore_value: no
+    initial_value: 'std::vector<std::vector<uint8_t>>{}'
+  - id: prebuffer_bytes
+    type: size_t
+    restore_value: no
+    initial_value: "0"
+  - id: prebuffer_pending_flush
+    type: bool
+    restore_value: no
+    initial_value: "false"
 
 # ---------------------------------------------------------------------------
 # Switches
@@ -281,7 +298,37 @@ microphone:
     channel: stereo
     on_data:
       - lambda: |-
+          // Always push to the pre-wake-word ring buffer (with eviction).
+          // ~192 KB target = 1.5 s @ 16 kHz / 32-bit / stereo. The mWW
+          // classifier has ~700–900 ms detection latency, so this window
+          // comfortably includes the wake word that triggered start_listening.
+          constexpr size_t kPrebufferMax = 192 * 1024;
+          auto& buf = id(prebuffer);
+          buf.push_back(std::vector<uint8_t>(x.begin(), x.end()));
+          id(prebuffer_bytes) += x.size();
+          while (id(prebuffer_bytes) > kPrebufferMax && !buf.empty()) {
+            id(prebuffer_bytes) -= buf.front().size();
+            buf.erase(buf.begin());
+          }
+
           if (!id(streaming_audio)) return;
+
+          // On the first chunk after wake-word, drain the prebuffer FIRST so
+          // the wake word is included in the audio sent to the server. The
+          // current chunk is already the last element in buf, so we don't
+          // publish it again. The flush runs on this (I2S) thread, in order.
+          if (id(prebuffer_pending_flush)) {
+            for (auto& chunk : buf) {
+              id(mqtt_client).publish(
+                "jarvis/${device_name}/audio",
+                reinterpret_cast<const char*>(chunk.data()),
+                chunk.size()
+              );
+            }
+            id(prebuffer_pending_flush) = false;
+            return;
+          }
+
           id(mqtt_client).publish(
             "jarvis/${device_name}/audio",
             reinterpret_cast<const char*>(x.data()),
@@ -525,11 +572,18 @@ script:
   # Auto-stops after 8s if not manually cancelled (prevents runaway streaming).
   - id: start_listening
     then:
-      - lambda: id(streaming_audio) = true;
-      - micro_wake_word.disable_model: hey_jarvis
+      # Publish audio_start FIRST so the server opens its session before the
+      # prebuffer chunks (sent by the on_data flush on next callback) arrive.
       - mqtt.publish:
           topic: jarvis/${device_name}/audio_start
           payload: "start"
+      # Order matters: set the pending_flush flag BEFORE streaming_audio so
+      # an on_data fire between the two writes sees flag=false and returns
+      # early — never publishes a chunk without the prebuffer flushed first.
+      - lambda: |-
+          id(prebuffer_pending_flush) = true;
+          id(streaming_audio) = true;
+      - micro_wake_word.disable_model: hey_jarvis
       - light.turn_on:
           id: voice_assistant_leds
           effect: "Listening"

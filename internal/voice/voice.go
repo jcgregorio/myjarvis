@@ -126,6 +126,16 @@ func (r *Runner) processVoice(ctx context.Context, device string, audioBytes []b
 		return &voiceResult{}
 	}
 
+	// False-positive filter: the device now includes the pre-wake-word
+	// audio in its stream, so a real wake-word event produces a transcript
+	// containing "jarvis". If it doesn't, the on-device microWakeWord
+	// classifier triggered on noise — drop silently (empty result == no
+	// spoken response, LED off) and log so we can see how often it fires.
+	if !ContainsWakeWord(transcript) {
+		log.Printf("[voice/false-positive] %s: %q", device, transcript)
+		return &voiceResult{}
+	}
+
 	toolCalls, reply, err := r.deps.LLM.Chat(ctx, transcript, r.Tools())
 	if err != nil {
 		return &voiceResult{transcript: transcript, err: fmt.Errorf("LLM error: %w", err)}
@@ -273,6 +283,14 @@ func (r *Runner) speak(device, text string) {
 	if err := r.deps.MQTT.PublishTTSURL(device, url); err != nil {
 		log.Printf("[tts] publish error: %v", err)
 	}
+}
+
+// ContainsWakeWord returns true if the transcript contains "jarvis"
+// (case-insensitive). Used as a server-side check that microWakeWord
+// didn't fire on noise — the device prepends ~1.5 s of pre-wake-word
+// audio, so a real wake event produces a transcript with the word in it.
+func ContainsWakeWord(transcript string) bool {
+	return strings.Contains(strings.ToLower(transcript), "jarvis")
 }
 
 // IsStopCommand returns true if the transcript is a stop/cancel command.
