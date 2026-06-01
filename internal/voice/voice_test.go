@@ -1,6 +1,10 @@
 package voice
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestIsStopCommand(t *testing.T) {
 	stop := []string{
@@ -31,9 +35,7 @@ func TestContainsWakeWord(t *testing.T) {
 	yes := []string{
 		"hey jarvis turn on the kitchen light",
 		"Hey, Jarvis, what's the weather",
-		"JARVIS stop",
-		"jarvis",
-		"hello jarvis",
+		"Hi Jarvis, what's the weather",
 	}
 	no := []string{
 		"",
@@ -43,16 +45,17 @@ func TestContainsWakeWord(t *testing.T) {
 		"the weather is nice",
 		"hey siri",
 		"i think so",
+		"JARVIS stop",
+		"jarvis",
+		"hello jarvis",
 	}
 	for _, s := range yes {
-		if !StartsWithWakeWord(s) {
-			t.Errorf("ContainsWakeWord(%q) = false, want true", s)
-		}
+		_, b := StartsWithWakeWord(s)
+		assert.True(t, b, s)
 	}
 	for _, s := range no {
-		if StartsWithWakeWord(s) {
-			t.Errorf("ContainsWakeWord(%q) = true, want false", s)
-		}
+		_, b := StartsWithWakeWord(s)
+		assert.False(t, b, s)
 	}
 }
 
