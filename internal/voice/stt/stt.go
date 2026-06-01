@@ -44,6 +44,23 @@ func (s *Client) Transcribe(rawPCM []byte) (string, error) {
 	if err := w.WriteField("language", "en"); err != nil {
 		return "", fmt.Errorf("write language field: %w", err)
 	}
+	// Bias whisper to keep the wake word in the transcript when it is
+	// spoken — by default the `base` model silently drops short
+	// interjections at the start. We need "jarvis" preserved so the
+	// server-side false-positive filter (voice.ContainsWakeWord) can
+	// reliably distinguish real wakes from microWakeWord triggering on
+	// noise. The OpenAI-compatible Whisper API spells this "prompt"
+	// (faster-whisper-server silently ignores unknown form fields, so a
+	// typo like "initial_prompt" appears to work but produces no bias).
+	if err := w.WriteField("prompt", "Hey Jarvis."); err != nil {
+		return "", fmt.Errorf("write prompt field: %w", err)
+	}
+	// faster-whisper's internal VAD filter aggressively trims quiet
+	// audio at the start of a clip, which is exactly where the wake
+	// word lives. Disable it so the prebuffer reaches the model intact.
+	if err := w.WriteField("vad_filter", "false"); err != nil {
+		return "", fmt.Errorf("write vad_filter field: %w", err)
+	}
 	if err := w.Close(); err != nil {
 		return "", fmt.Errorf("close multipart: %w", err)
 	}

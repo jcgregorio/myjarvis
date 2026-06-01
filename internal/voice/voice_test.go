@@ -45,12 +45,12 @@ func TestContainsWakeWord(t *testing.T) {
 		"i think so",
 	}
 	for _, s := range yes {
-		if !ContainsWakeWord(s) {
+		if !StartsWithWakeWord(s) {
 			t.Errorf("ContainsWakeWord(%q) = false, want true", s)
 		}
 	}
 	for _, s := range no {
-		if ContainsWakeWord(s) {
+		if StartsWithWakeWord(s) {
 			t.Errorf("ContainsWakeWord(%q) = true, want false", s)
 		}
 	}

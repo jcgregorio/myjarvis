@@ -13,7 +13,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
+	"regexp"
 	"sync"
 	"time"
 
@@ -126,13 +126,10 @@ func (r *Runner) processVoice(ctx context.Context, device string, audioBytes []b
 		return &voiceResult{}
 	}
 
-	// False-positive filter: the device now includes the pre-wake-word
-	// audio in its stream, so a real wake-word event produces a transcript
-	// containing "jarvis". If it doesn't, the on-device microWakeWord
-	// classifier triggered on noise — drop silently (empty result == no
-	// spoken response, LED off) and log so we can see how often it fires.
-	if !ContainsWakeWord(transcript) {
-		log.Printf("[voice/false-positive] %s: %q", device, transcript)
+	var hasWakeWord bool = false
+	transcript, hasWakeWord = StartsWithWakeWord(transcript)
+	if !hasWakeWord {
+		log.Printf("[voice/no-wake-word-in-transcript] %s: %q", device, transcript)
 		return &voiceResult{}
 	}
 
@@ -153,6 +150,7 @@ func (r *Runner) executeResult(device string, vr *voiceResult) {
 		r.deps.MQTT.PublishLED(device, "off")
 		return
 	}
+	log.Printf("[voice]: About to check for stop command in %s", vr.transcript)
 	if IsStopCommand(vr.transcript) {
 		log.Printf("[voice] %s: stop command received", device)
 		r.deps.MQTT.PublishStopPlayback(device)
@@ -285,23 +283,24 @@ func (r *Runner) speak(device, text string) {
 	}
 }
 
-// ContainsWakeWord returns true if the transcript contains "jarvis"
+var heyJarvisRE = regexp.MustCompile(`(?i)^(h(?:ey|i),?\sjarvis)`)
+
+// StartsWithWakeWord returns true if the transcript contains "hey, jarvis"
 // (case-insensitive). Used as a server-side check that microWakeWord
 // didn't fire on noise — the device prepends ~1.5 s of pre-wake-word
 // audio, so a real wake event produces a transcript with the word in it.
-func ContainsWakeWord(transcript string) bool {
-	return strings.Contains(strings.ToLower(transcript), "jarvis")
+func StartsWithWakeWord(transcript string) (string, bool) {
+	match := heyJarvisRE.FindString(transcript)
+	if match != "" {
+		return transcript[len(match):], true
+	}
+	return transcript, false
 }
+
+var stopCmdRE = regexp.MustCompile(`(?i)^[\s.,]*(?:stop|cancel|shut up|be quiet|quiet|nevermind|never mind)[\s.,]*$`)
 
 // IsStopCommand returns true if the transcript is a stop/cancel command.
 // Exported so cmd/myjarvis's interactive CLI can use the same check.
 func IsStopCommand(transcript string) bool {
-	t := strings.ToLower(strings.TrimSpace(transcript))
-	switch t {
-	case "stop", "stop.", "cancel", "cancel.",
-		"shut up", "shut up.", "be quiet", "be quiet.", "quiet", "quiet.",
-		"never mind", "never mind.", "nevermind", "nevermind.":
-		return true
-	}
-	return false
+	return stopCmdRE.MatchString(transcript)
 }

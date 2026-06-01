@@ -75,3 +75,9 @@ restart:
 
 logs:
 	docker logs -f myjarvis 2>&1 | grep -v "^Schema error:"
+
+mqtt:
+	docker exec mosquitto mosquitto_sub -t jarvis/#  -F "%t %l"
+
+serial-logs:
+	~/.venv/esphome/bin/esphome  logs esphome/kitchen-voice.yaml --device kitchen-voice.local

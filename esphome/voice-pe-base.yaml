@@ -45,6 +45,9 @@ esp32:
       CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
       CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
       CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"
+      # Route malloc/new to PSRAM so the 192KB prebuffer doesn't exhaust internal SRAM.
+      # I2S/DMA allocations use MALLOC_CAP_DMA|INTERNAL explicitly and are unaffected.
+      CONFIG_SPIRAM_USE_MALLOC: "y"
 
 wifi:
   ssid: !secret wifi_ssid
@@ -52,13 +55,6 @@ wifi:
 
 logger:
   level: DEBUG
-  logs:
-    sensor: WARN
-    mqtt: WARN
-    wifi: WARN
-    component: WARN
-    i2s_audio: DEBUG
-    api: WARN
 
 api:
 
@@ -112,6 +108,7 @@ mqtt:
     # myjarvis sends an HTTP URL pointing to a TTS audio file (e.g. piper output)
     - topic: jarvis/${device_name}/tts_url
       then:
+        - logger.log: "Starting TTS playback!"
         - light.turn_on:
             id: voice_assistant_leds
             effect: "Replying"
@@ -167,9 +164,9 @@ globals:
   # before publishing the current chunk. Sized for ~1.5 s of audio at
   # 16 kHz / 32-bit / stereo = 192 KB.
   - id: prebuffer
-    type: 'std::vector<std::vector<uint8_t>>'
+    type: "std::vector<std::vector<uint8_t>>"
     restore_value: no
-    initial_value: 'std::vector<std::vector<uint8_t>>{}'
+    initial_value: "std::vector<std::vector<uint8_t>>{}"
   - id: prebuffer_bytes
     type: size_t
     restore_value: no
@@ -190,18 +187,6 @@ switch:
     restore_mode: ALWAYS_OFF
     internal: true
 
-  # Software mute (only effective when hardware mute switch is off)
-  - platform: template
-    id: master_mute_switch
-    name: "Mute"
-    icon: "mdi:microphone-off"
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    on_turn_on:
-      - micro_wake_word.disable_model: hey_jarvis
-    on_turn_off:
-      - micro_wake_word.enable_model: hey_jarvis
-
 # ---------------------------------------------------------------------------
 # Binary sensors
 # ---------------------------------------------------------------------------
@@ -216,9 +201,7 @@ binary_sensor:
     on_press:
       - if:
           condition:
-            and:
-              - switch.is_off: master_mute_switch
-              - binary_sensor.is_off: hardware_mute_switch
+            binary_sensor.is_off: hardware_mute_switch
           then:
             - script.execute: start_listening
     on_release:
@@ -243,11 +226,7 @@ binary_sensor:
           payload: "true"
       - light.turn_off: voice_assistant_leds
     on_release:
-      - if:
-          condition:
-            switch.is_off: master_mute_switch
-          then:
-            - micro_wake_word.enable_model: hey_jarvis
+      - micro_wake_word.enable_model: hey_jarvis
       - mqtt.publish:
           topic: jarvis/${device_name}/muted
           payload: "false"
@@ -275,7 +254,6 @@ sensor:
     on_anticlockwise:
       - media_player.volume_down: voice_media_player
       - script.execute: show_volume
-
 
 # ---------------------------------------------------------------------------
 # Microphone
@@ -318,6 +296,8 @@ microphone:
           // current chunk is already the last element in buf, so we don't
           // publish it again. The flush runs on this (I2S) thread, in order.
           if (id(prebuffer_pending_flush)) {
+            ESP_LOGI("voice", "flushing prebuffer: %d chunks / %d bytes",
+                (int)buf.size(), (int)id(prebuffer_bytes));
             for (auto& chunk : buf) {
               id(mqtt_client).publish(
                 "jarvis/${device_name}/audio",
@@ -334,7 +314,6 @@ microphone:
             reinterpret_cast<const char*>(x.data()),
             x.size()
           );
-
 
 # ---------------------------------------------------------------------------
 # Speaker pipeline
@@ -536,11 +515,7 @@ micro_wake_word:
           - light.turn_on:
               id: voice_assistant_leds
               effect: "Listening"
-          - if:
-              condition:
-                switch.is_off: master_mute_switch
-              then:
-                - script.execute: start_listening
+          - script.execute: start_listening
 
 # ---------------------------------------------------------------------------
 # Scripts
@@ -581,6 +556,8 @@ script:
       # an on_data fire between the two writes sees flag=false and returns
       # early — never publishes a chunk without the prebuffer flushed first.
       - lambda: |-
+          ESP_LOGI("voice", "wake fired: prebuffer %d chunks / %d bytes",
+              (int)id(prebuffer).size(), (int)id(prebuffer_bytes));
           id(prebuffer_pending_flush) = true;
           id(streaming_audio) = true;
       - micro_wake_word.disable_model: hey_jarvis
