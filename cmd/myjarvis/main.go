@@ -133,6 +133,7 @@ func mainAction(cfg *config.Config) {
 		MQTT:            voiceMQTT,
 		InitialTools:    llm.BuildTools(entities, listNames, propertyNames),
 		RefreshInterval: 5 * time.Minute,
+		DebugAudioDir:   cfg.DebugAudioDir,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

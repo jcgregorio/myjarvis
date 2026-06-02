@@ -118,6 +118,12 @@ func (h *Client) LookupEntity(name string) (string, bool) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	id, ok := h.nameToID[strings.ToLower(name)]
+	if !ok {
+		log.Printf("FAILED to find %s in:", strings.ToLower(name))
+		for key, value := range h.nameToID {
+			log.Printf("%s: %s", key, value)
+		}
+	}
 	return id, ok
 }
 

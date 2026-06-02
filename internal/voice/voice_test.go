@@ -32,11 +32,21 @@ func TestIsStopCommand(t *testing.T) {
 }
 
 func TestContainsWakeWord(t *testing.T) {
-	yes := []string{
-		"hey jarvis turn on the kitchen light",
-		"Hey, Jarvis, what's the weather",
-		"Hi Jarvis, what's the weather",
+	yes := []struct {
+		input  string
+		output string
+	}{
+		{"hey jarvis turn on the kitchen light", "turn on the kitchen light"},
+		{"Hey, Jarvis, what's the weather", "what's the weather"},
+		{"Hi Jarvis, what's the weather", "what's the weather"},
+		{"hi jarvis, hey jarvis Hey Jarvis   ![] ", ""},
 	}
+	for _, testCast := range yes {
+		output, b := StartsWithWakeWord(testCast.input)
+		assert.True(t, b, testCast.input)
+		assert.Equal(t, testCast.output, output)
+	}
+
 	no := []string{
 		"",
 		// false-positive scenarios: mWW triggered, prebuffer included
@@ -48,10 +58,6 @@ func TestContainsWakeWord(t *testing.T) {
 		"JARVIS stop",
 		"jarvis",
 		"hello jarvis",
-	}
-	for _, s := range yes {
-		_, b := StartsWithWakeWord(s)
-		assert.True(t, b, s)
 	}
 	for _, s := range no {
 		_, b := StartsWithWakeWord(s)

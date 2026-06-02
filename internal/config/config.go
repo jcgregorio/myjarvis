@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -61,7 +62,8 @@ type Config struct {
 	// ObsidianRepo is the on-disk path to the obsidian vault git repo.
 	// Empty means "leave defaults set by the obsidian package alone".
 	ObsidianRepo string
-	DryRun       bool
+	DryRun        bool
+	DebugAudioDir string
 }
 
 // env gets the env value, or falls back to the defaultValue provided.
@@ -95,6 +97,7 @@ func (c *Config) Flagset() *flag.FlagSet {
 	}
 	fs.IntVar(&c.AudioPort, "audio-port", audioPort, "Audio Port")
 	fs.BoolVar(&c.DryRun, "dry-run", false, "Print tool calls without executing them against Home Assistant")
+	fs.StringVar(&c.DebugAudioDir, "debug-audio-dir", env("DEBUG_AUDIO_DIR", filepath.Join(os.Getenv("HOME"), "jarvis-debug-audio")), "Directory to save incoming audio clips as WAV (empty = disabled)")
 
 	return fs
 }

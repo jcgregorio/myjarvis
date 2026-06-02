@@ -13,6 +13,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"time"
@@ -48,6 +50,10 @@ type Deps struct {
 	// refetches HA entities + lists + properties and rebuilds the tool
 	// set under lock.
 	RefreshInterval time.Duration
+	// DebugAudioDir, if non-empty, causes each audio clip to be saved as a
+	// 16-bit mono WAV before transcription. Filename:
+	//   <dir>/<device>-<timestamp>-<spec|full>.wav
+	DebugAudioDir string
 }
 
 // Runner is the voice pipeline runtime. Hold the current tool set under
@@ -111,6 +117,22 @@ func (r *Runner) processVoice(ctx context.Context, device string, audioBytes []b
 		label = "[voice/spec]"
 	}
 
+	if dir := r.deps.DebugAudioDir; dir != "" {
+		kind := "full"
+		if speculative {
+			kind = "spec"
+		}
+		name := fmt.Sprintf("%s-%s-%s.wav", device, time.Now().Format("20060102-150405.000"), kind)
+		wav := stt.ToWAV16Mono(audioBytes, 16000)
+		if err := os.MkdirAll(dir, 0755); err == nil {
+			if werr := os.WriteFile(filepath.Join(dir, name), wav, 0644); werr != nil {
+				log.Printf("[voice/debug] write audio: %v", werr)
+			} else {
+				log.Printf("[voice/debug] saved %s", name)
+			}
+		}
+	}
+
 	start := time.Now()
 	transcript, err := r.deps.STT.Transcribe(audioBytes)
 	if err != nil {
@@ -130,6 +152,10 @@ func (r *Runner) processVoice(ctx context.Context, device string, audioBytes []b
 	transcript, hasWakeWord = StartsWithWakeWord(transcript)
 	if !hasWakeWord {
 		log.Printf("[voice/no-wake-word-in-transcript] %s: %q", device, transcript)
+		return &voiceResult{}
+	}
+	if transcript == "" {
+		log.Printf("[voice/nothing-but-wake-word-in-transcript]")
 		return &voiceResult{}
 	}
 
@@ -283,16 +309,24 @@ func (r *Runner) speak(device, text string) {
 	}
 }
 
-var heyJarvisRE = regexp.MustCompile(`(?i)^(h(?:ey|i),?\sjarvis)`)
+var heyJarvisRE = regexp.MustCompile(`(?i)^(h(?:ey|i),?\sjarvis)[\p{P}+\s]*`)
 
-// StartsWithWakeWord returns true if the transcript contains "hey, jarvis"
+// StartsWithWakeWord returns true if the transcript starts with "hey jarvis"
 // (case-insensitive). Used as a server-side check that microWakeWord
 // didn't fire on noise — the device prepends ~1.5 s of pre-wake-word
 // audio, so a real wake event produces a transcript with the word in it.
+// Returns the transcript with the leading wake word stripped.
 func StartsWithWakeWord(transcript string) (string, bool) {
 	match := heyJarvisRE.FindString(transcript)
 	if match != "" {
-		return transcript[len(match):], true
+		// We now know it starts with a wake word, but what if it was only the
+		// wake word, or multiple wake words repeated. So let's repeatedly look
+		// for "hey, jarvis" at the beginning and remove until no more appear.
+		for match != "" {
+			transcript = transcript[len(match):]
+			match = heyJarvisRE.FindString(transcript)
+		}
+		return transcript, true
 	}
 	return transcript, false
 }

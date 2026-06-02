@@ -94,6 +94,13 @@ func (s *Client) Transcribe(rawPCM []byte) (string, error) {
 	return result.Text, nil
 }
 
+// ToWAV16Mono converts raw 32-bit stereo interleaved PCM (16 kHz) to a
+// 16-bit mono WAV. Exported so callers can save debug copies of audio
+// that is about to be transcribed.
+func ToWAV16Mono(raw []byte, sampleRate int) []byte {
+	return pcm32StereoToWAV16Mono(raw, sampleRate)
+}
+
 // pcm32StereoToWAV16Mono converts 32-bit stereo interleaved PCM to a 16-bit
 // mono WAV file. It extracts the left channel (ch0) and takes the upper 16
 // bits of each 32-bit sample.
