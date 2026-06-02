@@ -125,10 +125,11 @@ func (r *Runner) processVoice(ctx context.Context, device string, audioBytes []b
 		name := fmt.Sprintf("%s-%s-%s.wav", device, time.Now().Format("20060102-150405.000"), kind)
 		wav := stt.ToWAV16Mono(audioBytes, 16000)
 		if err := os.MkdirAll(dir, 0755); err == nil {
-			if werr := os.WriteFile(filepath.Join(dir, name), wav, 0644); werr != nil {
+			fullpath := filepath.Join(dir, name)
+			if werr := os.WriteFile(fullpath, wav, 0644); werr != nil {
 				log.Printf("[voice/debug] write audio: %v", werr)
 			} else {
-				log.Printf("[voice/debug] saved %s", name)
+				log.Printf("[voice/debug] saved %s", fullpath)
 			}
 		}
 	}

@@ -27,10 +27,12 @@ services:
       - PIPER_ADDR=localhost:10200
       - AUDIO_PORT=8085
       - OBSIDIAN_REPO=/obsidian
+      - DEBUG_AUDIO_DIR=/debug-audio
     volumes:
       - /home/jcgregorio/obsidian:/obsidian
       - /home/jcgregorio/.gitconfig:/root/.gitconfig:ro
       - /home/jcgregorio/.config/gh:/root/.config/gh:ro
+      - /home/jcgregorio/jarvis-debug-audio:/debug-audio
 
   faster-whisper:
     image: fedirz/faster-whisper-server:latest-cuda
