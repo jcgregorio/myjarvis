@@ -2,7 +2,7 @@
 substitutions:
   device_name: living-room-voice
   friendly_name: "Living Room Voice"
-  mqtt_broker: "192.168.87.151"
+  mqtt_broker: "joelegion.local"
 
 packages:
   base: !include voice-pe-base.yaml
