@@ -29,8 +29,8 @@ set -uo pipefail
 # Config (env-overridable)
 # ----------------------------------------------------------------------
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OLLAMA_URL="${OLLAMA_URL:-http://192.168.1.145:11434/v1}"
-OLLAMA_SSH="${OLLAMA_SSH:-jcgregorio@192.168.1.145}"   # for `ollama list`/`pull`
+OLLAMA_URL="${OLLAMA_URL:-http://goldmine-prime:11434/v1}"
+OLLAMA_SSH="${OLLAMA_SSH:-jcgregorio@goldmine-prime}"   # for `ollama list`/`pull`
 RESULTS="${RESULTS:-$REPO_DIR/bench-results.csv}"
 GO_TIMEOUT="${GO_TIMEOUT:-30m}"     # passed to `go test -timeout`
 WALL_TIMEOUT="${WALL_TIMEOUT:-2400}" # hard wall-clock cap per run (sec)

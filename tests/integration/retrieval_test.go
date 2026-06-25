@@ -87,7 +87,7 @@ func TestRetrievalProbe(t *testing.T) {
 	}
 	ragURL := os.Getenv("RAG_URL")
 	if ragURL == "" {
-		ragURL = "http://192.168.1.145:8011"
+		ragURL = "http://goldmine-prime:8011"
 	}
 
 	lc := llm.NewClient(baseURL, model)

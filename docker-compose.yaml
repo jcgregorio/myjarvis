@@ -20,7 +20,7 @@ services:
     env_file:
       - /home/jcgregorio/jcgregorio/myjarvis-secret/myjarvis.env
     environment:
-      - OLLAMA_URL=http://192.168.1.145:11434/v1
+      - OLLAMA_URL=http://goldmine-prime:11434/v1
       - WHISPER_URL=http://localhost:8000
       - MODEL=granite4:latest
       - MQTT_BROKER=mqtt://localhost:1883

@@ -12,9 +12,9 @@
 
 set -euo pipefail
 
-OLLAMA_URL="${OLLAMA_URL:-http://192.168.1.145:11434/v1}"
+OLLAMA_URL="${OLLAMA_URL:-http://goldmine-prime:11434/v1}"
 MODEL="${MODEL:-granite4:latest}"
-RAG_URL="${RAG_URL:-http://192.168.1.145:8011}"
+RAG_URL="${RAG_URL:-http://goldmine-prime:8011}"
 
 USER_PROMPT=""
 PREV_PROMPT=""

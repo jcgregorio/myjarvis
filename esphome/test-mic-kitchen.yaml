@@ -50,7 +50,7 @@ api:
 
 mqtt:
   id: mqtt_client
-  broker: "192.168.87.151"
+  broker: "joelegion.local"
   port: 1883
   client_id: ${device_name}
 

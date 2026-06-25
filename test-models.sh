@@ -6,7 +6,7 @@
 
 set -uo pipefail
 
-REMOTE="192.168.1.145"
+REMOTE="goldmine-prime"
 API="http://$REMOTE:11434/v1/chat/completions"
 RESULTS_DIR="test-results"
 REPORT="$RESULTS_DIR/report.txt"

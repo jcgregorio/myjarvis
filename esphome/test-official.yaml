@@ -18,7 +18,7 @@ esphome:
 # Add MQTT for diagnostics
 mqtt:
   id: mqtt_diag
-  broker: "192.168.87.151"
+  broker: "joelegion.local"
   port: 1883
   client_id: living-room-voice-diag
   on_connect:

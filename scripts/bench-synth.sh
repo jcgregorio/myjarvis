@@ -24,9 +24,9 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OLLAMA_URL="${OLLAMA_URL:-http://192.168.1.145:11434/v1}"
-RAG_URL="${RAG_URL:-http://192.168.1.145:8011}"
-OLLAMA_SSH="${OLLAMA_SSH:-jcgregorio@192.168.1.145}"
+OLLAMA_URL="${OLLAMA_URL:-http://goldmine-prime:11434/v1}"
+RAG_URL="${RAG_URL:-http://goldmine-prime:8011}"
+OLLAMA_SSH="${OLLAMA_SSH:-jcgregorio@goldmine-prime}"
 RESULTS="${RESULTS:-$REPO_DIR/bench-synth-results.csv}"
 ANSWERS="${ANSWERS:-$REPO_DIR/bench-synth-answers.md}"
 PIDFILE="${PIDFILE:-$REPO_DIR/.bench-synth.pid}"

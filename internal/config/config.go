@@ -79,13 +79,13 @@ func (c *Config) Flagset() *flag.FlagSet {
 	fs := flag.NewFlagSet("myjarvis", flag.ExitOnError)
 	fs.StringVar(&c.HAURL, "ha-url", env("HA_URL", ":8000"), "URL of HomeAssistant API")
 	fs.StringVar(&c.HAToken, "ha-token", env("HA_TOKEN", ""), "Home Assistant Authorization token used for HA API.")
-	fs.StringVar(&c.OllamaURL, "ollama-url", env("OLLAMA_URL", "http://192.168.1.145:11434/v1"), "Ollama URL")
+	fs.StringVar(&c.OllamaURL, "ollama-url", env("OLLAMA_URL", "http://goldmine-prime:11434/v1"), "Ollama URL")
 	fs.StringVar(&c.Model, "model", env("MODEL", "granite4:latest"), "The name of the model to use")
 	fs.StringVar(&c.MQTTBroker, "mqtt-broker", env("MQTT_BROKER", "mqtt://localhost:1883"), "URL of MQTT broker")
 	fs.StringVar(&c.WhisperURL, "whisper-url", env("WHISPER_URL", "http://localhost:8000"), "URL of whisper server")
 	fs.StringVar(&c.VADModelPath, "vad-model-path", env("VAD_MODEL_PATH", "silero_vad.onnx"), "File path to VAD model")
 	fs.StringVar(&c.PiperAddr, "piper-url", env("PIPER_ADDR", "localhost:10200"), "Piper address")
-	fs.StringVar(&c.RAGURL, "rag-url", env("RAG_URL", "http://192.168.1.145:8011"), "URL of RAG server")
+	fs.StringVar(&c.RAGURL, "rag-url", env("RAG_URL", "http://goldmine-prime:8011"), "URL of RAG server")
 	fs.StringVar(&c.ObsidianRepo, "obsidian-repo", env("OBSIDIAN_REPO", ""), "Obsidian repo")
 	audioPort := 8085
 	var err error
@@ -121,7 +121,7 @@ func FromEnv() Config {
 		log.Fatal("HA_TOKEN environment variable is required (long-lived access token from HA profile)")
 	}
 	if cfg.OllamaURL == "" {
-		cfg.OllamaURL = "http://192.168.1.145:11434/v1"
+		cfg.OllamaURL = "http://goldmine-prime:11434/v1"
 	}
 	if cfg.Model == "" {
 		cfg.Model = "qwen2.5:7b"
@@ -142,7 +142,7 @@ func FromEnv() Config {
 		cfg.AudioPort = 8085
 	}
 	if cfg.RAGURL == "" {
-		cfg.RAGURL = "http://192.168.1.145:8011"
+		cfg.RAGURL = "http://goldmine-prime:8011"
 	}
 	return cfg
 }

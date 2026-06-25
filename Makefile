@@ -1,7 +1,7 @@
 MODEL     ?= granite4:latest
 HA_URL    ?= http://homeassistant.local:8123
 HA_TOKEN  ?= $(error HA_TOKEN is required — export HA_TOKEN=<your-long-lived-access-token>)
-OLLAMA_URL ?= http://192.168.1.145:11434/v1
+OLLAMA_URL ?= http://goldmine-prime:11434/v1
 
 GOBIN := $(shell go env GOPATH)/bin
 ESPHOME := $(HOME)/.venv/esphome/bin/esphome

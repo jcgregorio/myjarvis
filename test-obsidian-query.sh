@@ -2,7 +2,7 @@
 #
 # Test: ask the LLM a question with obsidian vault context, get a TTS-friendly answer.
 
-OLLAMA_URL="http://192.168.1.145:11434/v1/chat/completions"
+OLLAMA_URL="http://goldmine-prime:11434/v1/chat/completions"
 MODEL="qwen3:14b-64k"
 VAULT="$HOME/obsidian"
 QUESTION="What CPU does Austin's computer have?"
