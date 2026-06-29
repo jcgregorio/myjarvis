@@ -48,7 +48,6 @@ var controllableDomains = map[string]bool{
 	"cover":         true,
 	"media_player":  true,
 	"climate":       true,
-	"script":        true,
 	"automation":    true,
 }
 

@@ -18,7 +18,7 @@ func BuildTools(entities []ha.Entity, listNames []string, propertyNames []string
 	for _, e := range entities {
 		name := strings.ToLower(e.FriendlyName())
 		domain, _, _ := strings.Cut(e.EntityID, ".")
-		if domain == "automation" || domain == "script" {
+		if domain == "automation" {
 			automationNames = append(automationNames, name)
 		} else if domain == "climate" {
 			climateNames = append(climateNames, name)
