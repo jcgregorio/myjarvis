@@ -14,11 +14,15 @@ import (
 func BuildTools(entities []ha.Entity, listNames []string, propertyNames []string) []openai.ChatCompletionToolParam {
 	entityNames := make([]any, 0)
 	var automationNames []any
+	var climateNames []any
 	for _, e := range entities {
 		name := strings.ToLower(e.FriendlyName())
 		domain, _, _ := strings.Cut(e.EntityID, ".")
 		if domain == "automation" || domain == "script" {
 			automationNames = append(automationNames, name)
+		} else if domain == "climate" {
+			climateNames = append(climateNames, name)
+			entityNames = append(entityNames, name)
 		} else {
 			entityNames = append(entityNames, name)
 		}
@@ -74,6 +78,53 @@ func BuildTools(entities []ha.Entity, listNames []string, propertyNames []string
 				},
 			},
 		})
+	}
+
+	if len(climateNames) > 0 {
+		tools = append(tools,
+			openai.ChatCompletionToolParam{
+				Function: shared.FunctionDefinitionParam{
+					Name:        "set_temperature",
+					Description: openai.String("Set the target temperature on a thermostat"),
+					Parameters: shared.FunctionParameters{
+						"type": "object",
+						"properties": map[string]any{
+							"entity": map[string]any{
+								"type":        "string",
+								"description": "The name of the thermostat",
+								"enum":        climateNames,
+							},
+							"temperature": map[string]any{
+								"type":        "number",
+								"description": "Target temperature in Fahrenheit",
+							},
+						},
+						"required": []string{"entity", "temperature"},
+					},
+				},
+			},
+			openai.ChatCompletionToolParam{
+				Function: shared.FunctionDefinitionParam{
+					Name:        "set_hvac_mode",
+					Description: openai.String("Change the operating mode of a thermostat (heat, cool, off, auto)"),
+					Parameters: shared.FunctionParameters{
+						"type": "object",
+						"properties": map[string]any{
+							"entity": map[string]any{
+								"type":        "string",
+								"description": "The name of the thermostat",
+								"enum":        climateNames,
+							},
+							"mode": map[string]any{
+								"type": "string",
+								"enum": []string{"heat", "cool", "off", "auto", "heat_cool"},
+							},
+						},
+						"required": []string{"entity", "mode"},
+					},
+				},
+			},
+		)
 	}
 
 	tools = append(tools,

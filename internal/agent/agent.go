@@ -44,6 +44,10 @@ func (d *Dispatcher) Execute(ctx context.Context, tc ha.ToolCall) (string, error
 	switch tc.Name {
 	case "set_state":
 		return "", d.setState(ctx, tc.Args)
+	case "set_temperature":
+		return "", d.setTemperature(ctx, tc.Args)
+	case "set_hvac_mode":
+		return "", d.setHvacMode(ctx, tc.Args)
 	case "trigger_automation":
 		return "", d.triggerAutomation(ctx, tc.Args)
 	case "set_timer":
@@ -195,6 +199,42 @@ func (d *Dispatcher) logPropertyEvent(args string) (string, error) {
 		return "", fmt.Errorf("parse args: %w", err)
 	}
 	return property.Log(p.Property, p.Hours, p.Description, p.When)
+}
+
+func (d *Dispatcher) setTemperature(ctx context.Context, args string) error {
+	var p struct {
+		Entity      string  `json:"entity"`
+		Temperature float64 `json:"temperature"`
+	}
+	if err := json.Unmarshal([]byte(args), &p); err != nil {
+		return fmt.Errorf("parse args: %w", err)
+	}
+	entityID, ok := d.ha.LookupEntity(p.Entity)
+	if !ok {
+		return fmt.Errorf("unknown entity %q", p.Entity)
+	}
+	return d.ha.CallService(ctx, "climate", "set_temperature", map[string]any{
+		"entity_id":   entityID,
+		"temperature": p.Temperature,
+	})
+}
+
+func (d *Dispatcher) setHvacMode(ctx context.Context, args string) error {
+	var p struct {
+		Entity string `json:"entity"`
+		Mode   string `json:"mode"`
+	}
+	if err := json.Unmarshal([]byte(args), &p); err != nil {
+		return fmt.Errorf("parse args: %w", err)
+	}
+	entityID, ok := d.ha.LookupEntity(p.Entity)
+	if !ok {
+		return fmt.Errorf("unknown entity %q", p.Entity)
+	}
+	return d.ha.CallService(ctx, "climate", "set_hvac_mode", map[string]any{
+		"entity_id": entityID,
+		"hvac_mode": p.Mode,
+	})
 }
 
 func sanitizeName(s string) string {
