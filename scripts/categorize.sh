@@ -108,7 +108,9 @@ echo "  prompt:      $USER_PROMPT" >&2
 [[ -n "$PREV_TOOL"   ]] && echo "  prev-tool:   $PREV_TOOL"   >&2
 
 
-printf "Request: $CATEGORIZE_BODY"
+echo "=== Full Request ==="
+echo $CATEGORIZE_BODY | jq
+echo
 
 CAT_RESPONSE=$(curl -s -X POST "${OLLAMA_URL}/chat/completions" \
   -H "Content-Type: application/json" \
