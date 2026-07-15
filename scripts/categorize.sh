@@ -7,8 +7,8 @@
 #   ./categorize.sh "bananas" --prev-prompt "add potatoes to the shopping list" --prev-tool "add_to_list"
 #
 # Step 1: categorize into home_control | list_management | property_logging | search
-# Step 2: if search, run obsidian + wikipedia synthesis in parallel and return
-#         whichever answer has higher self-reported confidence.
+# Step 2: if search, run LLM direct answer + Wikipedia RAG fetch in parallel
+# Step 3: one comparison call picks the best of the two
 
 set -euo pipefail
 
@@ -19,12 +19,14 @@ RAG_URL="${RAG_URL:-http://goldmine-prime:8011}"
 USER_PROMPT=""
 PREV_PROMPT=""
 PREV_TOOL=""
+PREV_ASSISTANT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --prev-prompt) PREV_PROMPT="$2"; shift 2 ;;
-    --prev-tool)   PREV_TOOL="$2";   shift 2 ;;
-    *)             USER_PROMPT="$1"; shift   ;;
+    --prev-prompt)      PREV_PROMPT="$2"; shift 2 ;;
+    --prev-tool)        PREV_TOOL="$2";   shift 2 ;;
+    --prev-assistant)   PREV_ASSISTANT="$2";   shift 2 ;;
+    *)                  USER_PROMPT="$1"; shift   ;;
   esac
 done
 
@@ -35,7 +37,8 @@ fi
 
 # ── Step 1: Categorize ────────────────────────────────────────────────────────
 
-CATEGORIZE_SYSTEM="You are a request classifier. Categorize the user request by calling the categorize_request tool.
+CATEGORIZE_SYSTEM="You are a helpful assistant to an suburban family living in Apex, North Carolina. When users make requests you are
+to classify the families request.. Categorize the user request by calling the categorize_request tool. You MUST only respond in JSON.
 
 Rules (apply in priority order):
 
@@ -56,12 +59,11 @@ build_categorize_messages() {
       --arg pp "$PREV_PROMPT" \
       --arg pt "$PREV_TOOL" \
       --arg up "$USER_PROMPT" \
+      --arg pa "$PREV_ASSISTANT" \
       '[
         {"role":"system","content":$sys},
-        {"role":"user","content":$pp},
-        {"role":"assistant","content":"","tool_calls":[{"id":"prev","type":"function","function":{"name":$pt,"arguments":"{}"}}]},
-        {"role":"tool","tool_call_id":"prev","content":"ok"},
-        {"role":"user","content":$up}
+        {"role":"assistant","content":"Previous prompt from user: \"\($pp)\". Previous categorization response: \"\($pa)\". Previous tool call: \"\($pt)\"."},
+        {"role":"user","content":"\($up)"}
       ]'
   else
     jq -n \
@@ -105,6 +107,9 @@ echo "  prompt:      $USER_PROMPT" >&2
 [[ -n "$PREV_PROMPT" ]] && echo "  prev-prompt: $PREV_PROMPT" >&2
 [[ -n "$PREV_TOOL"   ]] && echo "  prev-tool:   $PREV_TOOL"   >&2
 
+
+printf "Request: $CATEGORIZE_BODY"
+
 CAT_RESPONSE=$(curl -s -X POST "${OLLAMA_URL}/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ollama" \
@@ -129,55 +134,53 @@ if [[ "$CATEGORY" != "search" ]]; then
   exit 0
 fi
 
-# ── Step 2: Dual RAG fetch + single synthesis call ────────────────────────────
-# Fetch both corpora in parallel, then let one LLM call read both and pick.
+# ── Step 2: LLM direct answer + Wikipedia RAG fetch in parallel ───────────────
+# Then one comparison call that sees both and picks the best.
 
-OBS_FILE=$(mktemp)
 WIKI_FILE=$(mktemp)
-trap 'rm -f "$OBS_FILE" "$WIKI_FILE"' EXIT
-
-rag_search() {
-  local collection="$1" outfile="$2"
-  curl -s -X POST "${RAG_URL}/search" \
-    -H "Content-Type: application/json" \
-    -d "$(jq -n --arg c "$collection" --arg q "$USER_PROMPT" \
-           '{"collection":$c,"query":$q,"limit":5}')" \
-    > "$outfile" 2>/dev/null || echo "[]" > "$outfile"
-}
+LLM_FILE=$(mktemp)
+trap 'rm -f "$WIKI_FILE" "$LLM_FILE"' EXIT
 
 echo "" >&2
-echo "=== Fetching both corpora ===" >&2
-rag_search "obsidian_vault"    "$OBS_FILE"  &
-rag_search "WIKIPEDIA_ENGLISH" "$WIKI_FILE" &
+echo "=== Fetching: LLM direct + Wikipedia RAG ===" >&2
+
+# LLM direct answer — no RAG, just the model's own knowledge.
+curl -s -X POST "${OLLAMA_URL}/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ollama" \
+  -d "$(jq -n --arg model "$MODEL" --arg q "$USER_PROMPT" '{
+    model: $model,
+    messages: [
+      {"role":"system","content":"Answer the question concisely and accurately. Plain prose, no markdown, suitable for text-to-speech."},
+      {"role":"user","content":$q}
+    ]
+  }')" > "$LLM_FILE" &
+
+# Wikipedia RAG fetch.
+curl -s -X POST "${RAG_URL}/search" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg q "$USER_PROMPT" '{"collection":"WIKIPEDIA_ENGLISH","query":$q,"limit":5}')" \
+  > "$WIKI_FILE" 2>/dev/null || echo "[]" > "$WIKI_FILE" &
+
 wait
 
-MAX_CHUNK=500  # characters per chunk — keeps total context manageable
+LLM_ANSWER=$(jq -r '.choices[0].message.content // "(no answer)"' "$LLM_FILE")
+WIKI_COUNT=$(jq 'length' "$WIKI_FILE")
+WIKI_CHUNKS=$(jq -r '
+  if length == 0 then "(no results)"
+  else .[] | "--- Wikipedia: \(.payload.title // "?") ---\n\(.payload.content // "" | .[0:500])\n"
+  end' "$WIKI_FILE")
 
-format_obsidian() {
-  # Filter out HA/ directory — those are tech setup docs, not personal life notes.
-  jq -r --argjson max "$MAX_CHUNK" '
-    map(select((.payload.path // "") | startswith("HA/") | not))
-    | if length == 0 then "(no results)"
-      else .[] | "--- \(.payload.path // "?")\(if (.payload.heading // "") != "" then " > \(.payload.heading)" else "" end) ---\n\(.payload.content // "" | .[0:$max])\n"
-      end' "$OBS_FILE"
-}
+echo "  llm direct:     $(echo "$LLM_ANSWER" | head -c 100)" >&2
+echo "  wikipedia hits: $WIKI_COUNT" >&2
 
-format_wikipedia() {
-  jq -r --argjson max "$MAX_CHUNK" '
-    if length == 0 then "(no results)"
-    else .[] | "--- Wikipedia: \(.payload.title // "?") ---\n\(.payload.content // "" | .[0:$max])\n"
-    end' "$WIKI_FILE"
-}
+# ── Step 3: Comparison call ───────────────────────────────────────────────────
+# The LLM sees its own direct answer alongside the Wikipedia excerpts and
+# picks whichever is more accurate/complete, or combines them.
 
-OBS_CHUNKS=$(format_obsidian)
-WIKI_CHUNKS=$(format_wikipedia)
-
-echo "  obsidian hits:  $(jq length "$OBS_FILE")" >&2
-echo "  wikipedia hits: $(jq length "$WIKI_FILE")" >&2
-
-SYNTHESIS_BODY=$(jq -n \
+COMPARE_BODY=$(jq -n \
   --arg model "$MODEL" \
-  --arg obs "$OBS_CHUNKS" \
+  --arg llm "$LLM_ANSWER" \
   --arg wiki "$WIKI_CHUNKS" \
   --arg question "$USER_PROMPT" \
   '{
@@ -185,33 +188,33 @@ SYNTHESIS_BODY=$(jq -n \
     messages: [
       {
         "role": "system",
-        "content": "You answer questions by choosing the most relevant source from two sets of documents: the user'\''s personal Obsidian notes and Wikipedia excerpts. Prefer personal notes when they directly address the question (the user'\''s own properties, cars, computers, finances). Use Wikipedia for general knowledge. Plain prose only, no markdown, suitable for text-to-speech."
+        "content": "You are given a question, a direct answer from your own knowledge, and Wikipedia excerpts. If the Wikipedia excerpts contain relevant, specific information, use them to verify or refine the answer. If they are irrelevant or empty, use the direct answer. Produce one final answer in plain prose suitable for text-to-speech. No markdown."
       },
       {
         "role": "user",
-        "content": ("=== Personal notes (Obsidian) ===\n\n" + $obs + "\n\n=== Wikipedia ===\n\n" + $wiki + "\n\nQuestion: " + $question)
+        "content": ("Question: " + $question + "\n\nDirect answer:\n" + $llm + "\n\nWikipedia excerpts:\n" + $wiki)
       }
     ],
     tools: [{
       "type": "function",
       "function": {
         "name": "provide_answer",
-        "description": "Provide the answer after choosing the best source.",
+        "description": "Provide the final answer after comparing both sources.",
         "parameters": {
           "type": "object",
           "properties": {
             "source": {
               "type": "string",
-              "enum": ["obsidian", "wikipedia", "neither"],
-              "description": "Which source actually answered the question."
+              "enum": ["direct", "wikipedia", "combined"],
+              "description": "Which source informed the final answer."
             },
             "answer": {
               "type": "string",
-              "description": "Answer suitable for text-to-speech. Plain prose, no markdown."
+              "description": "Final answer in plain prose for text-to-speech."
             },
             "reasoning": {
               "type": "string",
-              "description": "One sentence explaining why this source was chosen."
+              "description": "One sentence explaining the choice."
             }
           },
           "required": ["source", "answer", "reasoning"]
@@ -221,22 +224,22 @@ SYNTHESIS_BODY=$(jq -n \
     "tool_choice": {"type":"function","function":{"name":"provide_answer"}}
   }')
 
-SYNTH_RESPONSE=$(curl -s -X POST "${OLLAMA_URL}/chat/completions" \
+COMPARE_RESPONSE=$(curl -s -X POST "${OLLAMA_URL}/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ollama" \
-  -d "$SYNTHESIS_BODY")
+  -d "$COMPARE_BODY")
 
-SYNTH_ARGS=$(echo "$SYNTH_RESPONSE" | jq -r '.choices[0].message.tool_calls[0].function.arguments // empty')
-if [[ -z "$SYNTH_ARGS" ]]; then
-  echo "=== No tool call from synthesizer ===" >&2
-  echo "$SYNTH_RESPONSE" | jq . >&2
+COMPARE_ARGS=$(echo "$COMPARE_RESPONSE" | jq -r '.choices[0].message.tool_calls[0].function.arguments // empty')
+if [[ -z "$COMPARE_ARGS" ]]; then
+  echo "=== No tool call from comparison LLM ===" >&2
+  echo "$COMPARE_RESPONSE" | jq . >&2
   exit 1
 fi
 
 echo "" >&2
-echo "=== Synthesis ===" >&2
-echo "$SYNTH_ARGS" | jq '{source, reasoning}' >&2
+echo "=== Comparison ===" >&2
+echo "$COMPARE_ARGS" | jq '{source, reasoning}' >&2
 
 echo ""
 echo "=== Result ==="
-echo "$SYNTH_ARGS" | jq -r '.answer'
+echo "$COMPARE_ARGS" | jq -r '.answer'
