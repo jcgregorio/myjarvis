@@ -6,7 +6,7 @@ OLLAMA_URL ?= http://goldmine-prime:11434/v1
 GOBIN := $(shell go env GOPATH)/bin
 ESPHOME := $(HOME)/.venv/esphome/bin/esphome
 
-.PHONY: run dry-run list tools ollama test test-routing test-synth test-retrieval install flash-kitchen flash-living-room flash-kitchen-test ota ota-kitchen ota-living-room logs deploy restart
+.PHONY: run dry-run list tools ollama test test-routing test-synth test-retrieval install flash-kitchen flash-living-room flash-kitchen-test flash-development build-development ota ota-kitchen ota-living-room logs logs-development deploy restart
 
 install:
 	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" go install ./cmd/myjarvis
@@ -28,6 +28,14 @@ flash-kitchen:
 
 flash-living-room:
 	$(ESPHOME) run esphome/living-room-voice.yaml --device /dev/ttyACM1
+
+flash-development:
+	$(ESPHOME) run esphome/development-voice.yaml --device /dev/ttyACM0
+
+build-development:
+	$(ESPHOME) compile esphome/development-voice.yaml
+	cp esphome/.esphome/build/development-voice/.pioenvs/development-voice/firmware.factory.bin /tmp/development-voice-factory.bin
+	@echo "Factory binary: /tmp/development-voice-factory.bin"
 
 flash-kitchen-test:
 	$(ESPHOME) run esphome/test-official-kitchen.yaml --device /dev/ttyACM1 --device /dev/ttyACM1
@@ -70,6 +78,7 @@ test-retrieval:
 deploy:
 	docker compose build myjarvis && docker compose up -d myjarvis
 
+# restart does NOT pick up code changes — use deploy for that.
 restart:
 	docker compose restart myjarvis
 
@@ -81,3 +90,6 @@ mqtt:
 
 serial-logs:
 	~/.venv/esphome/bin/esphome  logs esphome/kitchen-voice.yaml --device kitchen-voice.local
+
+logs-development:
+	$(ESPHOME) logs esphome/development-voice.yaml --device development-voice.local

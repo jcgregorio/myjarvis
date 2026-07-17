@@ -134,6 +134,9 @@ func mainAction(cfg *config.Config) {
 		InitialTools:    llm.BuildTools(entities, listNames, propertyNames),
 		RefreshInterval: 5 * time.Minute,
 		DebugAudioDir:   cfg.DebugAudioDir,
+		DeviceFormats: map[string]stt.PCMFormat{
+			"development-voice": stt.PCM16BitStereo,
+		},
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

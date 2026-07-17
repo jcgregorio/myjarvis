@@ -158,6 +158,21 @@ func (v *Client) SignalError(device string) {
 	}()
 }
 
+// PublishText sends a short text string to be shown on a device display.
+// Devices without a display (Voice PE) silently ignore this topic.
+func (v *Client) PublishText(device, text string) {
+	if v.cm == nil {
+		return
+	}
+	if _, err := v.cm.Publish(context.Background(), &paho.Publish{
+		Topic:   fmt.Sprintf("jarvis/%s/text", device),
+		QoS:     0,
+		Payload: []byte(text),
+	}); err != nil {
+		log.Printf("[mqtt] publish text error: %v", err)
+	}
+}
+
 // PublishTTSURL sends a TTS audio URL to a device for playback.
 func (v *Client) PublishTTSURL(device, mediaURL string) error {
 	_, err := v.cm.Publish(context.Background(), &paho.Publish{

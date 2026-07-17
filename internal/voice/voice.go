@@ -54,6 +54,9 @@ type Deps struct {
 	// 16-bit mono WAV before transcription. Filename:
 	//   <dir>/<device>-<timestamp>-<spec|full>.wav
 	DebugAudioDir string
+	// DeviceFormats maps device names to their PCM format. Devices not listed
+	// default to PCM32BitStereo (Voice PE / XMOS output).
+	DeviceFormats map[string]stt.PCMFormat
 }
 
 // Runner is the voice pipeline runtime. Hold the current tool set under
@@ -117,13 +120,14 @@ func (r *Runner) processVoice(ctx context.Context, device string, audioBytes []b
 		label = "[voice/spec]"
 	}
 
+	format := r.pcmFormatFor(device)
 	if dir := r.deps.DebugAudioDir; dir != "" {
 		kind := "full"
 		if speculative {
 			kind = "spec"
 		}
 		name := fmt.Sprintf("%s-%s-%s.wav", device, time.Now().Format("20060102-150405.000"), kind)
-		wav := stt.ToWAV16Mono(audioBytes, 16000)
+		wav := stt.ToWAV16Mono(audioBytes, 16000, format)
 		if err := os.MkdirAll(dir, 0755); err == nil {
 			fullpath := filepath.Join(dir, name)
 			if werr := os.WriteFile(fullpath, wav, 0644); werr != nil {
@@ -135,7 +139,7 @@ func (r *Runner) processVoice(ctx context.Context, device string, audioBytes []b
 	}
 
 	start := time.Now()
-	transcript, err := r.deps.STT.Transcribe(audioBytes)
+	transcript, err := r.deps.STT.Transcribe(audioBytes, format)
 	if err != nil {
 		return &voiceResult{err: fmt.Errorf("STT error: %w", err)}
 	}
@@ -184,9 +188,14 @@ func (r *Runner) executeResult(device string, vr *voiceResult) {
 		r.deps.MQTT.PublishLED(device, "off")
 		return
 	}
+	// Show what was understood on text-capable displays (e.g. S3-BOX-3B).
+	// Voice PE devices don't subscribe to this topic and ignore it.
+	r.deps.MQTT.PublishText(device, vr.transcript)
+
 	if len(vr.toolCalls) == 0 {
 		log.Printf("[voice] %s: LLM reply (no tool call): %s", device, vr.reply)
 		r.speak(device, "Sorry, I don't know how to do that.")
+		r.deps.MQTT.PublishLED(device, "off")
 		return
 	}
 
@@ -200,6 +209,7 @@ func (r *Runner) executeResult(device string, vr *voiceResult) {
 		} else if result != "" {
 			log.Printf("[voice] %s:   result: %s", device, result)
 			r.speak(device, result)
+			r.deps.MQTT.PublishText(device, result)
 		} else {
 			log.Printf("[voice] %s:   done", device)
 		}
@@ -308,6 +318,13 @@ func (r *Runner) speak(device, text string) {
 	if err := r.deps.MQTT.PublishTTSURL(device, url); err != nil {
 		log.Printf("[tts] publish error: %v", err)
 	}
+}
+
+func (r *Runner) pcmFormatFor(device string) stt.PCMFormat {
+	if f, ok := r.deps.DeviceFormats[device]; ok {
+		return f
+	}
+	return stt.PCM32BitStereo
 }
 
 var heyJarvisRE = regexp.MustCompile(`(?i)^(h(?:ey|i),?\sjarvis)[\p{P}+\s]*`)

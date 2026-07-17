@@ -11,6 +11,16 @@ import (
 	"time"
 )
 
+// PCMFormat describes the raw audio format streamed from a device.
+type PCMFormat int
+
+const (
+	// PCM32BitStereo is 32-bit little-endian stereo interleaved PCM (Voice PE / XMOS output).
+	PCM32BitStereo PCMFormat = iota
+	// PCM16BitStereo is 16-bit little-endian stereo interleaved PCM (S3-BOX-3 / ES7210 output).
+	PCM16BitStereo
+)
+
 // Client sends audio to a faster-whisper server and returns the transcript.
 type Client struct {
 	baseURL string
@@ -24,10 +34,11 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
-// Transcribe converts raw 32-bit stereo PCM (16kHz) to 16-bit mono WAV,
+// Transcribe converts raw stereo PCM (16kHz) to 16-bit mono WAV,
 // sends it to the Whisper API, and returns the transcript text.
-func (s *Client) Transcribe(rawPCM []byte) (string, error) {
-	wav := pcm32StereoToWAV16Mono(rawPCM, 16000)
+// format must match the bit depth the device streams.
+func (s *Client) Transcribe(rawPCM []byte, format PCMFormat) (string, error) {
+	wav := ToWAV16Mono(rawPCM, 16000, format)
 
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
@@ -94,51 +105,65 @@ func (s *Client) Transcribe(rawPCM []byte) (string, error) {
 	return result.Text, nil
 }
 
-// ToWAV16Mono converts raw 32-bit stereo interleaved PCM (16 kHz) to a
-// 16-bit mono WAV. Exported so callers can save debug copies of audio
-// that is about to be transcribed.
-func ToWAV16Mono(raw []byte, sampleRate int) []byte {
-	return pcm32StereoToWAV16Mono(raw, sampleRate)
+// ToWAV16Mono converts raw stereo PCM (at sampleRate Hz) to a 16-bit mono WAV.
+// Exported so callers can save debug copies of audio before transcription.
+func ToWAV16Mono(raw []byte, sampleRate int, format PCMFormat) []byte {
+	switch format {
+	case PCM16BitStereo:
+		return pcm16StereoToWAV16Mono(raw, sampleRate)
+	default:
+		return pcm32StereoToWAV16Mono(raw, sampleRate)
+	}
 }
 
 // pcm32StereoToWAV16Mono converts 32-bit stereo interleaved PCM to a 16-bit
-// mono WAV file. It extracts the left channel (ch0) and takes the upper 16
-// bits of each 32-bit sample.
+// mono WAV. Extracts the left channel and takes the upper 16 bits of each
+// 32-bit sample (XMOS/Voice PE output format).
 func pcm32StereoToWAV16Mono(raw []byte, sampleRate int) []byte {
-	// Each stereo frame = 8 bytes (2 × 4-byte samples: left, right)
-	frameSize := 8
+	frameSize := 8 // 2 channels × 4 bytes
 	numFrames := len(raw) / frameSize
 
-	// Extract left channel, convert 32-bit → 16-bit (take upper 16 bits)
 	samples := make([]int16, numFrames)
 	for i := 0; i < numFrames; i++ {
 		offset := i * frameSize
-		// Left channel is first 4 bytes of each frame (little-endian int32)
 		sample32 := int32(binary.LittleEndian.Uint32(raw[offset : offset+4]))
 		samples[i] = int16(sample32 >> 16)
 	}
+	return buildWAV(samples, sampleRate)
+}
 
-	// Build WAV file
-	dataSize := numFrames * 2 // 16-bit = 2 bytes per sample
+// pcm16StereoToWAV16Mono converts 16-bit stereo interleaved PCM to a 16-bit
+// mono WAV. Extracts the left channel directly (ES7210/S3-BOX-3 output format).
+func pcm16StereoToWAV16Mono(raw []byte, sampleRate int) []byte {
+	frameSize := 4 // 2 channels × 2 bytes
+	numFrames := len(raw) / frameSize
+
+	samples := make([]int16, numFrames)
+	for i := 0; i < numFrames; i++ {
+		offset := i * frameSize
+		samples[i] = int16(binary.LittleEndian.Uint16(raw[offset : offset+2]))
+	}
+	return buildWAV(samples, sampleRate)
+}
+
+func buildWAV(samples []int16, sampleRate int) []byte {
+	dataSize := len(samples) * 2
 	var buf bytes.Buffer
 	buf.Grow(44 + dataSize)
 
-	// RIFF header
 	buf.WriteString("RIFF")
 	binary.Write(&buf, binary.LittleEndian, uint32(36+dataSize))
 	buf.WriteString("WAVE")
 
-	// fmt chunk
 	buf.WriteString("fmt ")
-	binary.Write(&buf, binary.LittleEndian, uint32(16))    // chunk size
-	binary.Write(&buf, binary.LittleEndian, uint16(1))     // PCM format
-	binary.Write(&buf, binary.LittleEndian, uint16(1))     // mono
+	binary.Write(&buf, binary.LittleEndian, uint32(16))
+	binary.Write(&buf, binary.LittleEndian, uint16(1))              // PCM
+	binary.Write(&buf, binary.LittleEndian, uint16(1))              // mono
 	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate))
-	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate*2)) // byte rate
-	binary.Write(&buf, binary.LittleEndian, uint16(2))     // block align
-	binary.Write(&buf, binary.LittleEndian, uint16(16))    // bits per sample
+	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate*2))   // byte rate
+	binary.Write(&buf, binary.LittleEndian, uint16(2))              // block align
+	binary.Write(&buf, binary.LittleEndian, uint16(16))             // bits per sample
 
-	// data chunk
 	buf.WriteString("data")
 	binary.Write(&buf, binary.LittleEndian, uint32(dataSize))
 	binary.Write(&buf, binary.LittleEndian, samples)

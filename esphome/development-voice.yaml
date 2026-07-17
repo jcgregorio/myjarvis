@@ -1,0 +1,8 @@
+# Development board — ESP32-S3-BOX-3B attached via USB
+substitutions:
+  device_name: development-voice
+  friendly_name: "Development Voice"
+  mqtt_broker: "joelegion.local"
+
+packages:
+  base: !include voice-pe-base-esp32s3box.yaml

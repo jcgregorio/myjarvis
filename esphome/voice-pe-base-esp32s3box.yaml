@@ -1,0 +1,452 @@
+# Base config for ESP32-S3-BOX-3B voice devices.
+# Hardware: ESP32-S3, 16MB flash, 16MB octal PSRAM
+#           ES8311 codec (DAC/output) + ES7210 4-mic array (ADC/input)
+#
+# Differences from voice-pe-base.yaml (Voice PE / XMOS):
+#   - No XMOS XU316 DSP — ES7210 provides mic directly
+#   - Single shared I2S bus (BCLK=GPIO17, LRCLK=GPIO45, MCLK=GPIO2)
+#   - ES8311 replaces AIC3204; audio_adc: es7210 replaces voice_kit
+#   - Microphone output is 16-bit stereo (ES7210 max is 24-bit)
+#   - No WS2812 LED ring — display shows state pages (Listening/Thinking/Error/idle)
+#   - Display: ILI9342C 320×240 via SPI (CLK=GPIO7, MOSI=GPIO6), backlight LEDC GPIO47
+#   - No rotary encoder
+#
+# Per-device files must supply these substitutions:
+#   device_name:   ESPHome device name (e.g. development-voice)
+#   friendly_name: Human-readable name  (e.g. "Development Voice")
+#   mqtt_broker:   MQTT broker hostname  (e.g. joelegion.local)
+#
+# Audio format: 16-bit stereo PCM at 16kHz (64KB/s). Register in DeviceFormats as PCM16BitStereo.
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.3.0
+  on_boot:
+    priority: -100
+    then:
+      - switch.turn_on: pa_enable
+      - light.turn_on:
+          id: backlight
+          brightness: 80%
+      - delay: 5s
+      - micro_wake_word.start:
+
+esp32:
+  board: esp32s3box
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_USE_MALLOC: "y"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+  level: DEBUG
+
+api:
+
+ota:
+  - platform: esphome
+
+# ---------------------------------------------------------------------------
+# Hardware buses
+# ---------------------------------------------------------------------------
+psram:
+  mode: octal
+  speed: 80MHz
+
+i2c:
+  - id: internal_i2c
+    sda: GPIO8
+    scl: GPIO18
+    frequency: 400kHz
+
+# Single shared bus: ES8311 (DOUT=GPIO15) + ES7210 (DIN=GPIO16)
+# LRCLK is GPIO45 (not GPIO47 — that's the LCD backlight output)
+i2s_audio:
+  - id: i2s_audio_bus
+    i2s_lrclk_pin:
+      number: GPIO45
+      ignore_strapping_warning: true
+    i2s_bclk_pin: GPIO17
+    i2s_mclk_pin: GPIO2
+
+# ---------------------------------------------------------------------------
+# Audio codecs
+# ---------------------------------------------------------------------------
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    i2c_id: internal_i2c
+    bits_per_sample: 16bit
+    sample_rate: 16000
+
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: internal_i2c
+    bits_per_sample: 16bit
+    sample_rate: 48000
+
+# ---------------------------------------------------------------------------
+# MQTT — same topic structure as voice-pe-base.yaml
+# ---------------------------------------------------------------------------
+mqtt:
+  id: mqtt_client
+  broker: ${mqtt_broker}
+  port: 1883
+  client_id: ${device_name}
+  birth_message:
+    topic: jarvis/${device_name}/status
+    payload: online
+  will_message:
+    topic: jarvis/${device_name}/status
+    payload: offline
+    retain: true
+  on_message:
+    - topic: jarvis/${device_name}/tts_url
+      then:
+        - logger.log: "Starting TTS playback"
+        - micro_wake_word.stop:
+        - delay: 100ms
+        - media_player.play_media:
+            id: voice_media_player
+            media_url: !lambda "return x;"
+            announcement: true
+    - topic: jarvis/${device_name}/stop_playback
+      then:
+        - media_player.stop:
+            id: voice_media_player
+        - micro_wake_word.start:
+    - topic: jarvis/${device_name}/stop_streaming
+      then:
+        - script.stop: start_listening
+        - script.execute: stop_listening
+    # LED state: "listening" | "thinking" | "error" | "off"
+    - topic: jarvis/${device_name}/led
+      then:
+        - lambda: |-
+            if (x == "listening") {
+              id(main_display).show_page(id(page_listening));
+            } else if (x == "thinking") {
+              id(main_display).show_page(id(page_thinking));
+            } else if (x == "error") {
+              id(main_display).show_page(id(page_error));
+            } else {
+              id(main_display).show_page(id(page_idle));
+            }
+            id(main_display).update();
+    - topic: jarvis/${device_name}/text
+      then:
+        - lambda: |-
+            id(display_text) = x;
+            id(main_display).show_page(id(page_text));
+            id(main_display).update();
+
+# ---------------------------------------------------------------------------
+# Backlight
+# ---------------------------------------------------------------------------
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO47
+
+light:
+  - platform: monochromatic
+    id: backlight
+    output: backlight_pwm
+    default_transition_length: 0s
+    internal: true
+
+# ---------------------------------------------------------------------------
+# Display SPI bus + panel
+# ---------------------------------------------------------------------------
+spi:
+  - id: spi_bus
+    clk_pin: GPIO7
+    mosi_pin: GPIO6
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_large
+    size: 48
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 24
+
+display:
+  - platform: mipi_spi
+    model: S3BOX
+    id: main_display
+    spi_id: spi_bus
+    cs_pin: GPIO5
+    dc_pin: GPIO4
+    reset_pin:
+      number: GPIO48
+      inverted: true
+    update_interval: never
+    pages:
+      - id: page_idle
+        lambda: |-
+          it.fill(Color(0, 0, 0));
+      - id: page_listening
+        lambda: |-
+          it.fill(Color(0, 0, 200));
+          it.print(it.get_width() / 2, it.get_height() / 2, id(font_large), COLOR_ON, TextAlign::CENTER, "Listening");
+      - id: page_thinking
+        lambda: |-
+          it.fill(Color(180, 120, 0));
+          it.print(it.get_width() / 2, it.get_height() / 2, id(font_large), COLOR_ON, TextAlign::CENTER, "Thinking");
+      - id: page_replying
+        lambda: |-
+          it.fill(Color(0, 160, 0));
+          it.print(it.get_width() / 2, it.get_height() / 2, id(font_large), COLOR_ON, TextAlign::CENTER, "Replying");
+      - id: page_error
+        lambda: |-
+          it.fill(Color(200, 0, 0));
+          it.print(it.get_width() / 2, it.get_height() / 2, id(font_large), COLOR_ON, TextAlign::CENTER, "Error");
+      - id: page_text
+        lambda: |-
+          it.fill(Color(0, 0, 0));
+          it.print(it.get_width() / 2, it.get_height() / 2, id(font_small), COLOR_ON, TextAlign::CENTER, id(display_text).c_str());
+
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
+globals:
+  - id: streaming_audio
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  # Pre-wake-word ring buffer. 1.5 s × 16 kHz × 16-bit stereo = 96 KB.
+  - id: prebuffer
+    type: "std::vector<std::vector<uint8_t>>"
+    restore_value: no
+    initial_value: "std::vector<std::vector<uint8_t>>{}"
+  - id: prebuffer_bytes
+    type: size_t
+    restore_value: no
+    initial_value: "0"
+  - id: prebuffer_pending_flush
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: display_text
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+# ---------------------------------------------------------------------------
+# Switches
+# ---------------------------------------------------------------------------
+switch:
+  - platform: gpio
+    pin:
+      number: GPIO46
+      ignore_strapping_warning: true
+    id: pa_enable
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+# ---------------------------------------------------------------------------
+# Binary sensors
+# ---------------------------------------------------------------------------
+binary_sensor:
+  - platform: gpio
+    id: center_button
+    name: "Center Button"
+    pin:
+      number: GPIO0
+      ignore_strapping_warning: true
+      mode: INPUT_PULLUP
+      inverted: true
+    on_press:
+      - script.execute: start_listening
+    on_release:
+      - if:
+          condition:
+            lambda: return id(streaming_audio);
+          then:
+            - script.stop: start_listening
+            - script.execute: stop_listening
+
+# ---------------------------------------------------------------------------
+# Microphone — ES7210 4-mic array via I2S, 16-bit stereo @ 16 kHz
+# mWW reads channel 0 at gain_factor 4.
+# ---------------------------------------------------------------------------
+microphone:
+  - platform: i2s_audio
+    id: box_mic
+    i2s_audio_id: i2s_audio_bus
+    i2s_din_pin: GPIO16
+    adc_type: external
+    pdm: false
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: stereo
+    on_data:
+      - lambda: |-
+          constexpr size_t kPrebufferMax = 96 * 1024;
+          auto& buf = id(prebuffer);
+          buf.push_back(std::vector<uint8_t>(x.begin(), x.end()));
+          id(prebuffer_bytes) += x.size();
+          while (id(prebuffer_bytes) > kPrebufferMax && !buf.empty()) {
+            id(prebuffer_bytes) -= buf.front().size();
+            buf.erase(buf.begin());
+          }
+
+          if (!id(streaming_audio)) return;
+
+          if (id(prebuffer_pending_flush)) {
+            ESP_LOGI("voice", "flushing prebuffer: %d chunks / %d bytes",
+                (int)buf.size(), (int)id(prebuffer_bytes));
+            for (auto& chunk : buf) {
+              id(mqtt_client).publish(
+                "jarvis/${device_name}/audio",
+                reinterpret_cast<const char*>(chunk.data()),
+                chunk.size()
+              );
+            }
+            id(prebuffer_pending_flush) = false;
+            return;
+          }
+
+          id(mqtt_client).publish(
+            "jarvis/${device_name}/audio",
+            reinterpret_cast<const char*>(x.data()),
+            x.size()
+          );
+
+# ---------------------------------------------------------------------------
+# Speaker pipeline — ES8311 DAC, 48 kHz 16-bit mono output
+# ---------------------------------------------------------------------------
+speaker:
+  - platform: i2s_audio
+    id: box_speaker
+    i2s_audio_id: i2s_audio_bus
+    i2s_dout_pin: GPIO15
+    dac_type: external
+    audio_dac: es8311_dac
+    sample_rate: 48000
+    bits_per_sample: 16bit
+    channel: left
+    buffer_duration: 100ms
+
+# ---------------------------------------------------------------------------
+# Media player — plays TTS audio from HTTP URLs sent via MQTT
+# ---------------------------------------------------------------------------
+http_request:
+  buffer_size_rx: 2048
+
+media_source:
+  - platform: http_request
+    id: http_announcement_source
+    buffer_size: 250000
+
+media_player:
+  - platform: speaker_source
+    id: voice_media_player
+    name: "Voice"
+    on_state:
+      - if:
+          condition:
+            not:
+              media_player.is_announcing: voice_media_player
+          then:
+            - micro_wake_word.start:
+    announcement_pipeline:
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+      speaker: box_speaker
+      sources:
+        - http_announcement_source
+    volume_increment: 0.05
+    volume_min: 0.5
+    volume_max: 0.8
+
+# ---------------------------------------------------------------------------
+# microWakeWord — hey_jarvis TFLite model, on-chip inference
+# ---------------------------------------------------------------------------
+micro_wake_word:
+  id: mww
+  microphone:
+    microphone: box_mic
+    channels: 1
+    gain_factor: 4
+  stop_after_detection: false
+  models:
+    - model: hey_jarvis.json
+      id: hey_jarvis
+  on_wake_word_detected:
+    - if:
+        condition:
+          media_player.is_announcing: voice_media_player
+        then:
+          - media_player.stop:
+              id: voice_media_player
+        else:
+          - mqtt.publish:
+              topic: jarvis/${device_name}/wake_detected
+              payload: "detected"
+          - script.execute: start_listening
+
+# ---------------------------------------------------------------------------
+# Scripts
+# ---------------------------------------------------------------------------
+script:
+  - id: start_listening
+    then:
+      - mqtt.publish:
+          topic: jarvis/${device_name}/audio_start
+          payload: "start"
+      - lambda: |-
+          ESP_LOGI("voice", "wake fired: prebuffer %d chunks / %d bytes",
+              (int)id(prebuffer).size(), (int)id(prebuffer_bytes));
+          id(prebuffer_pending_flush) = true;
+          id(streaming_audio) = true;
+      - micro_wake_word.disable_model: hey_jarvis
+      - delay: 30s
+      - script.execute: stop_listening
+
+  - id: stop_listening
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: return id(streaming_audio);
+          then:
+            - lambda: id(streaming_audio) = false;
+            - mqtt.publish:
+                topic: jarvis/${device_name}/audio_stop
+                payload: "stop"
+            - micro_wake_word.enable_model: hey_jarvis
+
+# ---------------------------------------------------------------------------
+# External components
+# ---------------------------------------------------------------------------
+external_components:
+  - source:
+      type: git
+      url: https://github.com/kahrendt/esphome
+      ref: 7a6cf5c8472b7e2fa18ee0fc314f66a80d249e32
+    components: [const, media_source]
+  - source:
+      type: git
+      url: https://github.com/esphome/esphome
+      ref: ff8ce89556748509d7ee8724e12d9d43d3c8c1e8
+    refresh: 0s
+    components: [http_request]
