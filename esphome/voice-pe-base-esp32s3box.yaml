@@ -414,6 +414,8 @@ script:
           topic: jarvis/${device_name}/audio_start
           payload: "start"
       - lambda: |-
+          id(main_display).show_page(id(page_listening));
+          id(main_display).update();
           ESP_LOGI("voice", "wake fired: prebuffer %d chunks / %d bytes",
               (int)id(prebuffer).size(), (int)id(prebuffer_bytes));
           id(prebuffer_pending_flush) = true;

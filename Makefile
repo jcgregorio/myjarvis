@@ -30,7 +30,7 @@ flash-living-room:
 	$(ESPHOME) run esphome/living-room-voice.yaml --device /dev/ttyACM1
 
 flash-development:
-	$(ESPHOME) run esphome/development-voice.yaml --device /dev/ttyACM0
+	$(ESPHOME) run esphome/development-voice.yaml --device /dev/ttyACM1
 
 build-development:
 	$(ESPHOME) compile esphome/development-voice.yaml
