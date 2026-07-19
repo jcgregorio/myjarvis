@@ -223,6 +223,21 @@ display:
           it.fill(Color(0, 0, 0));
           it.print(it.get_width() / 2, it.get_height() / 2, id(font_small), COLOR_ON, TextAlign::CENTER, id(display_text).c_str());
 
+touchscreen:
+  - platform: gt911
+    interrupt_pin: GPIO3
+    address: 0x5D
+    id: main_touch
+    on_touch:
+      - logger.log: "Screen was touched"
+    on_update:
+      - lambda: |-
+          for (auto touch: touches)  {
+              if (touch.state <= 2) {
+                ESP_LOGI("Touch points:", "id=%d x=%d, y=%d", touch.id, touch.x, touch.y);
+              }
+          }
+
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
@@ -282,6 +297,11 @@ binary_sensor:
           then:
             - script.stop: start_listening
             - script.execute: stop_listening
+  - platform: gt911
+    name: "Home Ring Button"
+    index: 0
+    on_press:
+      - logger.log: "Front Red Button Pressed"
 
 # ---------------------------------------------------------------------------
 # Microphone — ES7210 4-mic array via I2S, 16-bit stereo @ 16 kHz
