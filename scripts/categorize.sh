@@ -6,7 +6,7 @@
 #   ./categorize.sh "what is the mortgage rate in the windjammer"
 #   ./categorize.sh "bananas" --prev-prompt "add potatoes to the shopping list" --prev-tool "add_to_list"
 #
-# Step 1: categorize into home_control | list_management | property_logging | search
+# Step 1: categorize into home_control | list_management  | search
 # Step 2: if search, run LLM direct answer + Wikipedia RAG fetch in parallel
 # Step 3: one comparison call picks the best of the two
 
@@ -48,9 +48,7 @@ Rules (apply in priority order):
 
 3. list_management: the request adds, removes, checks off, or reads items from a shopping or todo list.
 
-4. property_logging: records work done on a real-estate property ('log that we…', 'record that…'). Always an action, never a question.
-
-5. search: any question or lookup — whether about the user's personal notes or general knowledge."
+4. search: any question or lookup — whether about the user's personal notes or general knowledge."
 
 build_categorize_messages() {
   if [[ -n "$PREV_PROMPT" && -n "$PREV_TOOL" ]]; then
@@ -89,8 +87,8 @@ CATEGORIZE_BODY=$(jq -n \
           properties: {
             category: {
               type: "string",
-              enum: ["home_control","list_management","property_logging","search"],
-              description: "home_control: device/automation control. list_management: list CRUD. property_logging: record work on a property. search: any question or lookup."
+              enum: ["home_control","list_management","search"],
+              description: "home_control: device/automation control. list_management: list CRUD. search: any question or lookup."
             },
             confidence: {type: "string", enum: ["high","medium","low"]},
             reasoning: {type: "string", description: "One sentence explaining the choice."}
@@ -116,6 +114,9 @@ CAT_RESPONSE=$(curl -s -X POST "${OLLAMA_URL}/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ollama" \
   -d "$CATEGORIZE_BODY")
+
+echo "=== categorize response ==="
+echo $CAT_RESPONSE | jq
 
 CAT_ARGS=$(echo "$CAT_RESPONSE" | jq -r '.choices[0].message.tool_calls[0].function.arguments // empty')
 if [[ -z "$CAT_ARGS" ]]; then
@@ -166,6 +167,12 @@ curl -s -X POST "${RAG_URL}/search" \
 
 wait
 
+echo "=== Wikipedia RAG search results ==="
+cat $WIKI_FILE | jq
+
+echo "=== LLM Direct Answer ==="
+cat $LLM_FILE | jq
+
 LLM_ANSWER=$(jq -r '.choices[0].message.content // "(no answer)"' "$LLM_FILE")
 WIKI_COUNT=$(jq 'length' "$WIKI_FILE")
 WIKI_CHUNKS=$(jq -r '
@@ -196,52 +203,19 @@ COMPARE_BODY=$(jq -n \
         "role": "user",
         "content": ("Question: " + $question + "\n\nDirect answer:\n" + $llm + "\n\nWikipedia excerpts:\n" + $wiki)
       }
-    ],
-    tools: [{
-      "type": "function",
-      "function": {
-        "name": "provide_answer",
-        "description": "Provide the final answer after comparing both sources.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "source": {
-              "type": "string",
-              "enum": ["direct", "wikipedia", "combined"],
-              "description": "Which source informed the final answer."
-            },
-            "answer": {
-              "type": "string",
-              "description": "Final answer in plain prose for text-to-speech."
-            },
-            "reasoning": {
-              "type": "string",
-              "description": "One sentence explaining the choice."
-            }
-          },
-          "required": ["source", "answer", "reasoning"]
-        }
-      }
-    }],
-    "tool_choice": {"type":"function","function":{"name":"provide_answer"}}
+    ]
   }')
+
+echo "=== comparison request ==="
+echo $COMPARE_BODY | jq
 
 COMPARE_RESPONSE=$(curl -s -X POST "${OLLAMA_URL}/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ollama" \
   -d "$COMPARE_BODY")
 
-COMPARE_ARGS=$(echo "$COMPARE_RESPONSE" | jq -r '.choices[0].message.tool_calls[0].function.arguments // empty')
-if [[ -z "$COMPARE_ARGS" ]]; then
-  echo "=== No tool call from comparison LLM ===" >&2
-  echo "$COMPARE_RESPONSE" | jq . >&2
-  exit 1
-fi
+echo "=== comparison response ==="
+echo $COMPARE_RESPONSE | jq
 
-echo "" >&2
-echo "=== Comparison ===" >&2
-echo "$COMPARE_ARGS" | jq '{source, reasoning}' >&2
-
-echo ""
 echo "=== Result ==="
-echo "$COMPARE_ARGS" | jq -r '.answer'
+echo "$COMPARE_RESPONSE" | jq -r '.choices[0].message.content'
