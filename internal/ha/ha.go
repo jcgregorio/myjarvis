@@ -103,7 +103,7 @@ func (h *Client) FetchControllableEntities(ctx context.Context) ([]Entity, error
 		domain, _, ok := strings.Cut(e.EntityID, ".")
 		if ok && controllableDomains[domain] {
 			result = append(result, e)
-			newNames[strings.ToLower(e.FriendlyName())] = e.EntityID
+			newNames[strings.TrimSpace(strings.ToLower(e.FriendlyName()))] = e.EntityID
 		}
 	}
 
@@ -116,9 +116,10 @@ func (h *Client) FetchControllableEntities(ctx context.Context) ([]Entity, error
 func (h *Client) LookupEntity(name string) (string, bool) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	id, ok := h.nameToID[strings.ToLower(name)]
+	normalized := strings.TrimSpace(strings.ToLower(strings.TrimRight(name, " /.,;:!?")))
+	id, ok := h.nameToID[normalized]
 	if !ok {
-		log.Printf("FAILED to find %s in:", strings.ToLower(name))
+		log.Printf("FAILED to find %s in:", normalized)
 		for key, value := range h.nameToID {
 			log.Printf("%s: %s", key, value)
 		}

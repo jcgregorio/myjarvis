@@ -6,9 +6,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/jcgregorio/myjarvis/internal/ha"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
-	"github.com/jcgregorio/myjarvis/internal/ha"
 )
 
 // qwen2.5 sometimes returns tool calls as text in the form:
@@ -30,10 +30,8 @@ func stripThinkTags(content string) string {
 const systemPrompt = `You are a home assistant. You always answer by calling a tool — never from your own knowledge.
 
 Routing rules:
-- Device/automation commands (lights, switches, scripts, timers): use set_state, trigger_automation, or set_timer.
+- Device/automation commands, may start with phrases like "turn or" or "run" and lights, switches, scripts, timers, and automations: use set_state, trigger_automation, or set_timer.
 - List operations (shopping list, todos): use check_list, add_to_list, check_off_item, uncheck_item, or clean_lists.
-- Recording work done or an event for a real-estate property ("log that we…", "record that…", "note that we spent N hours on…"): use log_property_event. This writes the property's activity log — it is not a shopping/todo list and not a question.
-- Questions about the user's own life, projects, properties, computers, notes: use search_notes.
 - Any other factual question — history, science, geography, definitions, people, places, math, distances, measurements — use search_wikipedia. Do not answer from memory.
 
 Only respond with prose if literally no tool fits. If the request is ambiguous, make a reasonable assumption and call a tool.`
