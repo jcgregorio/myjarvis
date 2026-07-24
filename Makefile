@@ -40,7 +40,7 @@ build-development:
 flash-kitchen-test:
 	$(ESPHOME) run esphome/test-official-kitchen.yaml --device /dev/ttyACM1 --device /dev/ttyACM1
 
-ota: ota-kitchen ota-living-room
+ota: ota-kitchen ota-living-room ota-development
 
 ota-kitchen:
 	$(ESPHOME) compile esphome/kitchen-voice.yaml
@@ -49,6 +49,11 @@ ota-kitchen:
 ota-living-room:
 	$(ESPHOME) compile esphome/living-room-voice.yaml
 	$(ESPHOME) upload esphome/living-room-voice.yaml --device living-room-voice.local
+
+ota-development:
+	$(ESPHOME) compile esphome/development-voice.yaml
+	$(ESPHOME) upload esphome/development-voice.yaml --device development-voice.local
+
 
 ollama:
 	docker compose -f /home/jcgregorio/jcgregorio/homeassistant/docker-compose.yaml up -d ollama
