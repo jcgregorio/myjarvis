@@ -20,10 +20,6 @@ import (
 	"github.com/jcgregorio/myjarvis/internal/config"
 	"github.com/jcgregorio/myjarvis/internal/ha"
 	"github.com/jcgregorio/myjarvis/internal/llm"
-	"github.com/jcgregorio/myjarvis/internal/obsidian"
-	"github.com/jcgregorio/myjarvis/internal/obsidian/lists"
-	"github.com/jcgregorio/myjarvis/internal/obsidian/property"
-	"github.com/jcgregorio/myjarvis/internal/rag"
 	"github.com/jcgregorio/myjarvis/internal/tts"
 	"github.com/jcgregorio/myjarvis/internal/voice"
 	"github.com/jcgregorio/myjarvis/internal/voice/audio"
@@ -31,17 +27,6 @@ import (
 	"github.com/jcgregorio/myjarvis/internal/voice/stt"
 	"github.com/jcgregorio/myjarvis/internal/voice/vad"
 )
-
-// applyConfig propagates cross-package side effects of the loaded
-// config (currently: pointing the obsidian-vault package vars at a
-// non-default location).
-func applyConfig(cfg *config.Config) {
-	if cfg.ObsidianRepo != "" {
-		obsidian.SetRepo(cfg.ObsidianRepo)
-		lists.SetDir(cfg.ObsidianRepo + "/Lists")
-		property.SetDir(cfg.ObsidianRepo + "/Properties")
-	}
-}
 
 func main() {
 	action := "main"
@@ -61,7 +46,6 @@ func main() {
 		log.Fatalf("Failed parse flags: %s", err)
 	}
 	flag.Parse()
-	applyConfig(cfg)
 
 	switch action {
 	case "list":
@@ -84,20 +68,7 @@ func mainAction(cfg *config.Config) {
 	fmt.Printf("Found %d controllable entities.\n", len(entities))
 
 	lc := llm.NewClient(cfg.OllamaURL, cfg.Model)
-	rs := rag.NewSearcher(rag.NewClient(cfg.RAGURL), lc)
-	dispatcher := agent.New(hc, rs)
-
-	listNames, err := lists.Fetch()
-	if err != nil {
-		log.Printf("Failed to fetch lists (continuing without): %v", err)
-	}
-	fmt.Printf("Found %d lists.\n", len(listNames))
-
-	propertyNames, err := property.Fetch()
-	if err != nil {
-		log.Printf("Failed to fetch properties (continuing without): %v", err)
-	}
-	fmt.Printf("Found %d properties.\n", len(propertyNames))
+	dispatcher := agent.New(hc)
 
 	sttc := stt.NewClient(cfg.WhisperURL)
 	ttsc := tts.NewClient(cfg.PiperAddr)
@@ -131,7 +102,7 @@ func mainAction(cfg *config.Config) {
 		AudioServer:     audioSrv,
 		Router:          router,
 		MQTT:            voiceMQTT,
-		InitialTools:    llm.BuildTools(entities, listNames, propertyNames),
+		InitialTools:    llm.BuildTools(entities),
 		RefreshInterval: 5 * time.Minute,
 		DebugAudioDir:   cfg.DebugAudioDir,
 		DeviceFormats: map[string]stt.PCMFormat{
@@ -216,9 +187,7 @@ func runTools(cfg *config.Config) {
 		log.Fatalf("Failed to fetch HA entities: %v", err)
 	}
 
-	listNames, _ := lists.Fetch()
-	propertyNames, _ := property.Fetch()
-	tools := llm.BuildTools(entities, listNames, propertyNames)
+	tools := llm.BuildTools(entities)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(tools); err != nil {

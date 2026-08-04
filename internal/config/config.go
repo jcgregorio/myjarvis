@@ -49,19 +49,15 @@ func (s *ServerFlags) Flagset() *flag.FlagSet {
 
 // Config is the loaded environment-driven configuration for myjarvis.
 type Config struct {
-	HAURL        string
-	HAToken      string
-	OllamaURL    string
-	Model        string
-	MQTTBroker   string
-	WhisperURL   string
-	VADModelPath string
-	PiperAddr    string
-	AudioPort    int
-	RAGURL       string
-	// ObsidianRepo is the on-disk path to the obsidian vault git repo.
-	// Empty means "leave defaults set by the obsidian package alone".
-	ObsidianRepo string
+	HAURL         string
+	HAToken       string
+	OllamaURL     string
+	Model         string
+	MQTTBroker    string
+	WhisperURL    string
+	VADModelPath  string
+	PiperAddr     string
+	AudioPort     int
 	DryRun        bool
 	DebugAudioDir string
 }
@@ -85,8 +81,6 @@ func (c *Config) Flagset() *flag.FlagSet {
 	fs.StringVar(&c.WhisperURL, "whisper-url", env("WHISPER_URL", "http://localhost:8000"), "URL of whisper server")
 	fs.StringVar(&c.VADModelPath, "vad-model-path", env("VAD_MODEL_PATH", "silero_vad.onnx"), "File path to VAD model")
 	fs.StringVar(&c.PiperAddr, "piper-url", env("PIPER_ADDR", "localhost:10200"), "Piper address")
-	fs.StringVar(&c.RAGURL, "rag-url", env("RAG_URL", "http://goldmine-prime:8011"), "URL of RAG server")
-	fs.StringVar(&c.ObsidianRepo, "obsidian-repo", env("OBSIDIAN_REPO", ""), "Obsidian repo")
 	audioPort := 8085
 	var err error
 	if v := os.Getenv("AUDIO_PORT"); v != "" {
@@ -140,9 +134,6 @@ func FromEnv() Config {
 	}
 	if cfg.AudioPort == 0 {
 		cfg.AudioPort = 8085
-	}
-	if cfg.RAGURL == "" {
-		cfg.RAGURL = "http://goldmine-prime:8011"
 	}
 	return cfg
 }

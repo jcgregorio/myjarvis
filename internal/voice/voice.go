@@ -24,8 +24,6 @@ import (
 	"github.com/jcgregorio/myjarvis/internal/agent"
 	"github.com/jcgregorio/myjarvis/internal/ha"
 	"github.com/jcgregorio/myjarvis/internal/llm"
-	"github.com/jcgregorio/myjarvis/internal/obsidian/lists"
-	"github.com/jcgregorio/myjarvis/internal/obsidian/property"
 	"github.com/jcgregorio/myjarvis/internal/tts"
 	"github.com/jcgregorio/myjarvis/internal/voice/audio"
 	"github.com/jcgregorio/myjarvis/internal/voice/mqtt"
@@ -286,19 +284,10 @@ func (r *Runner) refreshLoop(ctx context.Context) {
 				log.Printf("entity refresh failed: %v", err)
 				continue
 			}
-			refreshedLists, err := lists.Fetch()
-			if err != nil {
-				log.Printf("list refresh failed: %v", err)
-			}
-			refreshedProperties, err := property.Fetch()
-			if err != nil {
-				log.Printf("property refresh failed: %v", err)
-			}
 			r.toolsMu.Lock()
-			r.tools = llm.BuildTools(updated, refreshedLists, refreshedProperties)
+			r.tools = llm.BuildTools(updated)
 			r.toolsMu.Unlock()
-			log.Printf("refreshed %d entities, %d lists, %d properties",
-				len(updated), len(refreshedLists), len(refreshedProperties))
+			log.Printf("refreshed %d entities", len(updated))
 		}
 	}
 }

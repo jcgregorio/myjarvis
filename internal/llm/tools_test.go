@@ -3,12 +3,13 @@ package llm
 import (
 	"encoding/json"
 	"testing"
+
 	"github.com/jcgregorio/myjarvis/internal/ha"
 )
 
 func TestBuildTools_names(t *testing.T) {
-	tools := BuildTools(nil, nil, nil)
-	want := []string{"set_state", "search_notes", "search_wikipedia", "set_timer", "check_list", "check_off_item", "uncheck_item", "clean_lists", "add_to_list", "log_property_event"}
+	tools := BuildTools(nil)
+	want := []string{"set_state"}
 	if len(tools) != len(want) {
 		got := make([]string, len(tools))
 		for i, tool := range tools {
@@ -28,7 +29,7 @@ func TestBuildTools_climateTools(t *testing.T) {
 		{EntityID: "climate.downstairs", Attributes: map[string]any{"friendly_name": "Downstairs Thermostat"}},
 		{EntityID: "light.kitchen"},
 	}
-	tools := BuildTools(entities, nil, nil)
+	tools := BuildTools(entities)
 
 	var names []string
 	for _, tool := range tools {
@@ -71,7 +72,7 @@ func TestBuildTools_noClimateTools(t *testing.T) {
 	entities := []ha.Entity{
 		{EntityID: "light.kitchen"},
 	}
-	tools := BuildTools(entities, nil, nil)
+	tools := BuildTools(entities)
 	for _, tool := range tools {
 		if tool.Function.Name == "set_temperature" || tool.Function.Name == "set_hvac_mode" {
 			t.Errorf("unexpected climate tool %q when no climate entities present", tool.Function.Name)
@@ -84,7 +85,7 @@ func TestBuildTools_entityIDEnum(t *testing.T) {
 		{EntityID: "light.kitchen"},
 		{EntityID: "switch.fan"},
 	}
-	tools := BuildTools(entities, nil, nil)
+	tools := BuildTools(entities)
 
 	// set_state is the first tool
 	params := tools[0].Function.Parameters
@@ -112,7 +113,7 @@ func TestBuildTools_entityIDEnum(t *testing.T) {
 
 func TestBuildTools_emptyEntities(t *testing.T) {
 	// Should not panic with zero entities
-	tools := BuildTools([]ha.Entity{}, nil, nil)
+	tools := BuildTools([]ha.Entity{})
 	if len(tools) == 0 {
 		t.Fatal("expected tools even with no entities")
 	}

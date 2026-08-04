@@ -23,9 +23,9 @@ func seededClient(t *testing.T) (*httptest.Server, *ha.Client) {
 	t.Cleanup(srv.Close)
 	c := ha.NewClient(srv.URL, "fake-token")
 	c.SetEntities(map[string]string{
-		"light.kitchen":  "light.kitchen",
+		"light.kitchen":     "light.kitchen",
 		"light.living_room": "light.living_room",
-		"switch.fan":     "switch.fan",
+		"switch.fan":        "switch.fan",
 	})
 	return srv, c
 }
@@ -41,7 +41,7 @@ func TestExecute_setStateOff(t *testing.T) {
 		w.Write([]byte("[]"))
 	})
 
-	d := New(hc, nil)
+	d := New(hc)
 	if _, err := d.Execute(context.Background(), ha.ToolCall{
 		Name: "set_state",
 		Args: `{"entity":"light.kitchen","state":"off"}`,
@@ -65,7 +65,7 @@ func TestExecute_setStateOn(t *testing.T) {
 		w.Write([]byte("[]"))
 	})
 
-	d := New(hc, nil)
+	d := New(hc)
 	if _, err := d.Execute(context.Background(), ha.ToolCall{
 		Name: "set_state",
 		Args: `{"entity":"switch.fan","state":"on"}`,
@@ -77,33 +77,9 @@ func TestExecute_setStateOn(t *testing.T) {
 	}
 }
 
-func TestExecute_setTimer(t *testing.T) {
-	srv, hc := seededClient(t)
-	var gotBody map[string]any
-	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&gotBody)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("[]"))
-	})
-
-	d := New(hc, nil)
-	if _, err := d.Execute(context.Background(), ha.ToolCall{
-		Name: "set_timer",
-		Args: `{"name":"pasta","duration_seconds":600}`,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if gotBody["duration"] != "00:10:00" {
-		t.Errorf("duration = %v, want 00:10:00", gotBody["duration"])
-	}
-	if gotBody["entity_id"] != "timer.pasta" {
-		t.Errorf("entity_id = %v, want timer.pasta", gotBody["entity_id"])
-	}
-}
-
 func TestExecute_invalidState(t *testing.T) {
 	_, hc := seededClient(t)
-	d := New(hc, nil)
+	d := New(hc)
 	_, err := d.Execute(context.Background(), ha.ToolCall{
 		Name: "set_state",
 		Args: `{"entity":"light.kitchen","state":"maybe"}`,
@@ -115,20 +91,9 @@ func TestExecute_invalidState(t *testing.T) {
 
 func TestExecute_unknownTool(t *testing.T) {
 	_, hc := seededClient(t)
-	d := New(hc, nil)
+	d := New(hc)
 	if _, err := d.Execute(context.Background(), ha.ToolCall{Name: "bogus"}); err == nil {
 		t.Error("expected error for unknown tool, got nil")
-	}
-}
-
-func TestExecute_searchNoRag(t *testing.T) {
-	_, hc := seededClient(t)
-	d := New(hc, nil) // no rag configured
-	if _, err := d.Execute(context.Background(), ha.ToolCall{
-		Name: "search_wikipedia",
-		Args: `{"query":"x","question":"y"}`,
-	}); err == nil {
-		t.Error("expected error when rag is nil, got nil")
 	}
 }
 
