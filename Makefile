@@ -6,7 +6,7 @@ OLLAMA_URL ?= http://goldmine-prime:11434/v1
 GOBIN := $(shell go env GOPATH)/bin
 ESPHOME := $(HOME)/.venv/esphome/bin/esphome
 
-.PHONY: run dry-run list tools ollama test test-routing test-synth test-retrieval install flash-kitchen flash-living-room flash-kitchen-test flash-development build-development ota ota-kitchen ota-living-room logs logs-development deploy restart
+.PHONY: run dry-run list tools ollama test test-routing install flash-kitchen flash-living-room flash-kitchen-test flash-development build-development ota ota-kitchen ota-living-room logs logs-development deploy restart
 
 install:
 	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" go install ./cmd/myjarvis
@@ -68,17 +68,6 @@ test-routing:
 	OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
 	go test -tags integration -run TestRouting -v -timeout 30m ./tests/integration
 
-# Live RAG answer-synthesis quality suite. Hits the LLM + RAG sidecar.
-test-synth:
-	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" \
-	OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
-	go test -tags integration -run TestSynthesis -v -timeout 30m ./tests/integration
-
-# RAG retrieval-ranking probe: keyword query vs raw question vs both.
-test-retrieval:
-	CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" \
-	OLLAMA_URL=$(OLLAMA_URL) MODEL=$(MODEL) LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
-	go test -tags integration -run TestRetrievalProbe -v -timeout 30m ./tests/integration
 
 deploy:
 	docker compose build myjarvis && docker compose up -d myjarvis

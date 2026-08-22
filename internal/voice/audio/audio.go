@@ -45,13 +45,18 @@ func (s *Session) Snapshot() []byte {
 // signal the device to stop streaming.
 // OnPause is called when VAD detects a short pause in speech, delivering a snapshot
 // of audio so far for speculative processing.
+//
+// DeviceToMono maps device names to a PCM→mono-float32 converter. Devices not
+// listed use the default 32-bit stereo path (vad.Append). Set this before
+// calling AppendAudio to support devices with non-standard audio formats.
 type Router struct {
-	mu          sync.Mutex
-	sessions    map[string]*Session // device name → active session
-	vad         *vad.Processor
-	OnComplete  func(device string, audio []byte)
-	OnSpeechEnd func(device string)
-	OnPause     func(device string, audio []byte)
+	mu           sync.Mutex
+	sessions     map[string]*Session // device name → active session
+	vad          *vad.Processor
+	DeviceToMono map[string]func([]byte) []float32
+	OnComplete   func(device string, audio []byte)
+	OnSpeechEnd  func(device string)
+	OnPause      func(device string, audio []byte)
 }
 
 func NewRouter(vad *vad.Processor) *Router {
@@ -90,9 +95,15 @@ func (r *Router) AppendAudio(device string, data []byte) {
 	}
 	s.Append(data)
 
-	// Run VAD on the chunk
+	// Run VAD on the chunk, using a device-specific converter if registered.
 	if r.vad != nil {
-		switch r.vad.Append(data) {
+		var vadResult vad.Result
+		if fn, ok := r.DeviceToMono[device]; ok {
+			vadResult = r.vad.AppendMono(fn(data))
+		} else {
+			vadResult = r.vad.Append(data)
+		}
+		switch vadResult {
 		case vad.Pause:
 			log.Printf("[audio] %s: VAD detected pause in speech", device)
 			if r.OnPause != nil {

@@ -15,17 +15,13 @@ import (
 )
 
 // routing_test.go is an integration test that exercises the real LLM
-// (Ollama) to verify that prompts are routed to the correct tool, and
+// (Ollama) to verify that prompts are routed to the correct HA tool, and
 // reports per-category routing latency. It is skipped unless OLLAMA_URL
 // is set, so the normal `go test ./...` / `make test` is unaffected.
 //
 // Run it with:  make test-routing
 //
-// It measures only the routing call (a single LLM round-trip). The
-// user-perceived latency for search_notes / search_wikipedia adds a
-// second LLM call (the RAG answer synthesis) which this test does not
-// execute — it deliberately avoids side effects (no HA actuation, no
-// list mutation, no RAG sidecar dependency).
+// It deliberately avoids side effects (no HA actuation).
 
 // fixtureEntities is a fixed synthetic HA entity set so routing results
 // are reproducible regardless of the live Home Assistant state.
@@ -45,21 +41,12 @@ func fixtureEntities() []ha.Entity {
 	}
 }
 
-var fixtureLists = []string{"ShoppingList", "TodoList"}
-
-var fixtureProperties = []string{
-	"5 Myrtle Ct. Ocean Isle Beach 28469",
-	"0 Hayes Run Rd. New Hill NC",
-}
-
 type routeCase struct {
 	category string
 	prompt   string
 	wantTool string
 }
 
-// routeCases covers the three target capabilities plus the supporting
-// list/timer tools. wantTool is the tool the router should select.
 var routeCases = []routeCase{
 	// --- Home automation: on/off device control ---
 	{"home/set_state", "Turn on the kitchen light", "set_state"},
@@ -76,41 +63,6 @@ var routeCases = []routeCase{
 	// --- Home automation: timers ---
 	{"home/set_timer", "Set a timer for 10 minutes", "set_timer"},
 	{"home/set_timer", "Start a 5 minute pasta timer", "set_timer"},
-
-	// --- Home automation: lists ---
-	{"home/add_to_list", "Add milk to the shopping list", "add_to_list"},
-	{"home/add_to_list", "Put batteries on the todo list", "add_to_list"},
-	{"home/check_list", "What's on my shopping list", "check_list"},
-	{"home/check_list", "Is bread on the shopping list", "check_list"},
-	{"home/check_off_item", "Check off bread from the shopping list", "check_off_item"},
-	{"home/clean_lists", "Clean up the lists", "clean_lists"},
-
-	// --- Obsidian: personal / "about me" knowledge ---
-	{"obsidian/search_notes", "What did I write about Goldmine Prime", "search_notes"},
-	{"obsidian/search_notes", "When did I buy the Hayes Run property", "search_notes"},
-	{"obsidian/search_notes", "Summarize my notes on the Telluride trip", "search_notes"},
-	{"obsidian/search_notes", "What are the specs of my Austin computer", "search_notes"},
-	{"obsidian/search_notes", "Remind me what I wrote about the RAG setup", "search_notes"},
-	{"obsidian/search_notes", "What did I write in my notes about the basement renovation", "search_notes"},
-	{"obsidian/search_notes", "What did I note about my car's last oil change", "search_notes"},
-
-	// --- Wikipedia: general world knowledge ---
-	{"wiki/search_wikipedia", "Who invented the transistor", "search_wikipedia"},
-	{"wiki/search_wikipedia", "How far is the moon from the earth in light seconds", "search_wikipedia"},
-	{"wiki/search_wikipedia", "What is the capital of Mongolia", "search_wikipedia"},
-	{"wiki/search_wikipedia", "When did World War 2 end", "search_wikipedia"},
-	{"wiki/search_wikipedia", "What is the speed of light", "search_wikipedia"},
-	{"wiki/search_wikipedia", "How tall is Mount Everest", "search_wikipedia"},
-	{"wiki/search_wikipedia", "Who wrote Pride and Prejudice", "search_wikipedia"},
-	{"wiki/search_wikipedia", "Explain how photosynthesis works", "search_wikipedia"},
-	{"wiki/search_wikipedia", "What year did the Berlin Wall fall", "search_wikipedia"},
-	{"wiki/search_wikipedia", "What is the boiling point of water in Fahrenheit", "search_wikipedia"},
-
-	// --- Property activity log ---
-	{"property/log_property_event", "Log that today we finished working three days straight on removing personal items from 5 Myrtle Court", "log_property_event"},
-	{"property/log_property_event", "Log that we had Rick replace the lock on the Hayes Run storage shed", "log_property_event"},
-	{"property/log_property_event", "Record that we spent four hours mowing and trimming at 5 Myrtle Court", "log_property_event"},
-	{"property/log_property_event", "Note that the roof inspection was done yesterday at Hayes Run", "log_property_event"},
 }
 
 type routeResult struct {
@@ -133,7 +85,7 @@ func TestRouting(t *testing.T) {
 	}
 
 	lc := llm.NewClient(baseURL, model)
-	tools := llm.BuildTools(fixtureEntities(), fixtureLists, fixtureProperties)
+	tools := llm.BuildTools(fixtureEntities())
 
 	// MYJARVIS_NOTHINK=1 appends qwen3's /no_think soft switch so the
 	// router skips chain-of-thought — used for the latency comparison.

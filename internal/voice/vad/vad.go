@@ -74,17 +74,27 @@ func (v *Processor) Reset() {
 	v.doneDet.Reset()
 }
 
-// Append converts a 32-bit stereo PCM chunk to mono float32, appends it, and
-// checks for speech pauses and end. Returns Pause on the first short pause
-// after speech, Done on final end of speech, or None otherwise.
+// Append converts a 32-bit stereo PCM chunk to mono float32 and calls AppendMono.
+// Use this for Voice PE / XMOS devices (32-bit stereo).
+func (v *Processor) Append(chunk []byte) Result {
+	return v.AppendMono(pcm32StereoToFloat32Mono(chunk))
+}
+
+// Append16 converts a 16-bit stereo PCM chunk to mono float32 and calls AppendMono.
+// Use this for S3-BOX-3B / ES7210 devices (16-bit stereo).
+func (v *Processor) Append16(chunk []byte) Result {
+	return v.AppendMono(PCM16StereoToFloat32Mono(chunk))
+}
+
+// AppendMono accepts pre-converted mono float32 samples, appends them to the
+// sliding window, and checks for speech pauses and end. Returns Pause on the
+// first short pause after speech, Done on final end of speech, or None otherwise.
 //
 // Detection runs on a sliding window (last 5 seconds) each cycle. Both
 // detectors are reset before each call so they process the window from
 // scratch — necessary because silence duration is measured within a single
 // Detect call.
-func (v *Processor) Append(chunk []byte) Result {
-	mono := pcm32StereoToFloat32Mono(chunk)
-
+func (v *Processor) AppendMono(mono []float32) Result {
 	v.mu.Lock()
 	v.pcm = append(v.pcm, mono...)
 	totalSamples := len(v.pcm)
@@ -194,6 +204,21 @@ func pcm32StereoToFloat32Mono(raw []byte) []float32 {
 		offset := i * frameSize
 		sample32 := int32(binary.LittleEndian.Uint32(raw[offset : offset+4]))
 		samples[i] = float32(sample32) / float32(math.MaxInt32)
+	}
+	return samples
+}
+
+// PCM16StereoToFloat32Mono converts 16-bit stereo interleaved PCM (little-endian)
+// to mono float32 samples normalized to [-1.0, 1.0]. Extracts left channel only.
+// Used for S3-BOX-3B / ES7210 devices.
+func PCM16StereoToFloat32Mono(raw []byte) []float32 {
+	frameSize := 4 // 2 channels × 2 bytes
+	numFrames := len(raw) / frameSize
+	samples := make([]float32, numFrames)
+	for i := range numFrames {
+		offset := i * frameSize
+		sample16 := int16(binary.LittleEndian.Uint16(raw[offset : offset+2]))
+		samples[i] = float32(sample16) / float32(math.MaxInt16)
 	}
 	return samples
 }

@@ -31,6 +31,7 @@ esphome:
           brightness: 80%
       - delay: 5s
       - micro_wake_word.start:
+      - light.turn_off: backlight
 
 esp32:
   board: esp32s3box
@@ -57,6 +58,7 @@ logger:
   level: DEBUG
 
 api:
+  reboot_timeout: 0s
 
 ota:
   - platform: esphome
@@ -130,7 +132,6 @@ mqtt:
       then:
         - media_player.stop:
             id: voice_media_player
-        - micro_wake_word.start:
     - topic: jarvis/${device_name}/stop_streaming
       then:
         - script.stop: start_listening
@@ -141,12 +142,16 @@ mqtt:
         - lambda: |-
             if (x == "listening") {
               id(main_display).show_page(id(page_listening));
+              id(backlight).turn_on().set_brightness(0.8f).perform();
             } else if (x == "thinking") {
               id(main_display).show_page(id(page_thinking));
+              id(backlight).turn_on().set_brightness(0.8f).perform();
             } else if (x == "error") {
               id(main_display).show_page(id(page_error));
+              id(backlight).turn_on().set_brightness(0.8f).perform();
             } else {
               id(main_display).show_page(id(page_idle));
+              id(backlight).turn_off().perform();
             }
             id(main_display).update();
     - topic: jarvis/${device_name}/text
@@ -154,6 +159,7 @@ mqtt:
         - lambda: |-
             id(display_text) = x;
             id(main_display).show_page(id(page_text));
+            id(backlight).turn_on().set_brightness(0.8f).perform();
             id(main_display).update();
 
 # ---------------------------------------------------------------------------
@@ -435,6 +441,7 @@ script:
           payload: "start"
       - lambda: |-
           id(main_display).show_page(id(page_listening));
+          id(backlight).turn_on().set_brightness(0.8f).perform();
           id(main_display).update();
           ESP_LOGI("voice", "wake fired: prebuffer %d chunks / %d bytes",
               (int)id(prebuffer).size(), (int)id(prebuffer_bytes));

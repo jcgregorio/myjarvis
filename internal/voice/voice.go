@@ -28,6 +28,7 @@ import (
 	"github.com/jcgregorio/myjarvis/internal/voice/audio"
 	"github.com/jcgregorio/myjarvis/internal/voice/mqtt"
 	"github.com/jcgregorio/myjarvis/internal/voice/stt"
+	"github.com/jcgregorio/myjarvis/internal/voice/vad"
 )
 
 // Deps bundles the dependencies voice.Runner drives. Concrete types
@@ -69,6 +70,18 @@ type Runner struct {
 
 // New constructs a Runner; doesn't start anything until Run is called.
 func New(deps Deps) *Runner {
+	// Wire per-device VAD converters from DeviceFormats so end-of-speech
+	// detection uses the correct bit-depth for each device.
+	if deps.Router != nil && len(deps.DeviceFormats) > 0 {
+		if deps.Router.DeviceToMono == nil {
+			deps.Router.DeviceToMono = make(map[string]func([]byte) []float32)
+		}
+		for device, fmt := range deps.DeviceFormats {
+			if fmt == stt.PCM16BitStereo {
+				deps.Router.DeviceToMono[device] = vad.PCM16StereoToFloat32Mono
+			}
+		}
+	}
 	return &Runner{
 		deps:  deps,
 		tools: deps.InitialTools,
