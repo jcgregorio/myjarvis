@@ -32,6 +32,9 @@ flash-living-room:
 flash-development:
 	$(ESPHOME) run esphome/development-voice.yaml --device /dev/ttyACM1
 
+flash-master-bedroom:
+	$(ESPHOME) run esphome/master-bedroom.yaml --device /dev/ttyACM1
+
 build-development:
 	$(ESPHOME) compile esphome/development-voice.yaml
 	cp esphome/.esphome/build/development-voice/.pioenvs/development-voice/firmware.factory.bin /tmp/development-voice-factory.bin
@@ -40,20 +43,19 @@ build-development:
 flash-kitchen-test:
 	$(ESPHOME) run esphome/test-official-kitchen.yaml --device /dev/ttyACM1 --device /dev/ttyACM1
 
-ota: ota-kitchen ota-living-room ota-development
+ota: ota-kitchen  ota-development ota-master-bedroom
 
 ota-kitchen:
 	$(ESPHOME) compile esphome/kitchen-voice.yaml
 	$(ESPHOME) upload esphome/kitchen-voice.yaml --device kitchen-voice.local
 
-ota-living-room:
-	$(ESPHOME) compile esphome/living-room-voice.yaml
-	$(ESPHOME) upload esphome/living-room-voice.yaml --device living-room-voice.local
-
 ota-development:
 	$(ESPHOME) compile esphome/development-voice.yaml
 	$(ESPHOME) upload esphome/development-voice.yaml --device development-voice.local
 
+ota-master-bedroom:
+	$(ESPHOME) compile esphome/master-bedroom.yaml
+	$(ESPHOME) upload esphome/master-bedroom.yaml --device master-bedroom.local
 
 ollama:
 	docker compose -f /home/jcgregorio/jcgregorio/homeassistant/docker-compose.yaml up -d ollama
