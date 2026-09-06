@@ -95,27 +95,6 @@ func BuildTools(entities []ha.Entity) []openai.ChatCompletionToolParam {
 					},
 				},
 			},
-			openai.ChatCompletionToolParam{
-				Function: shared.FunctionDefinitionParam{
-					Name:        "set_hvac_mode",
-					Description: openai.String("Change the operating mode of a thermostat (heat, cool, off, auto)"),
-					Parameters: shared.FunctionParameters{
-						"type": "object",
-						"properties": map[string]any{
-							"entity": map[string]any{
-								"type":        "string",
-								"description": "The name of the thermostat",
-								"enum":        climateNames,
-							},
-							"mode": map[string]any{
-								"type": "string",
-								"enum": []string{"heat", "cool", "off", "auto", "heat_cool"},
-							},
-						},
-						"required": []string{"entity", "mode"},
-					},
-				},
-			},
 		)
 	}
 

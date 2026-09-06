@@ -36,20 +36,14 @@ func TestBuildTools_climateTools(t *testing.T) {
 		names = append(names, tool.Function.Name)
 	}
 
-	var foundTemp, foundMode bool
+	var foundTemp bool
 	for _, n := range names {
 		if n == "set_temperature" {
 			foundTemp = true
 		}
-		if n == "set_hvac_mode" {
-			foundMode = true
-		}
 	}
 	if !foundTemp {
 		t.Errorf("expected set_temperature tool, got %v", names)
-	}
-	if !foundMode {
-		t.Errorf("expected set_hvac_mode tool, got %v", names)
 	}
 
 	// Verify climate entity appears in the enum for set_temperature.
@@ -74,7 +68,7 @@ func TestBuildTools_noClimateTools(t *testing.T) {
 	}
 	tools := BuildTools(entities)
 	for _, tool := range tools {
-		if tool.Function.Name == "set_temperature" || tool.Function.Name == "set_hvac_mode" {
+		if tool.Function.Name == "set_temperature" {
 			t.Errorf("unexpected climate tool %q when no climate entities present", tool.Function.Name)
 		}
 	}

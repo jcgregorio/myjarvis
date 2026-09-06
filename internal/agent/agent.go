@@ -35,8 +35,6 @@ func (d *Dispatcher) Execute(ctx context.Context, tc ha.ToolCall) (string, error
 		return "", d.setState(ctx, tc.Args)
 	case "set_temperature":
 		return "", d.setTemperature(ctx, tc.Args)
-	case "set_hvac_mode":
-		return "", d.setHvacMode(ctx, tc.Args)
 	case "trigger_automation":
 		return "", d.triggerAutomation(ctx, tc.Args)
 	default:
@@ -97,24 +95,6 @@ func (d *Dispatcher) setTemperature(ctx context.Context, args string) error {
 	return d.ha.CallService(ctx, "climate", "set_temperature", map[string]any{
 		"entity_id":   entityID,
 		"temperature": p.Temperature,
-	})
-}
-
-func (d *Dispatcher) setHvacMode(ctx context.Context, args string) error {
-	var p struct {
-		Entity string `json:"entity"`
-		Mode   string `json:"mode"`
-	}
-	if err := json.Unmarshal([]byte(args), &p); err != nil {
-		return fmt.Errorf("parse args: %w", err)
-	}
-	entityID, ok := d.ha.LookupEntity(p.Entity)
-	if !ok {
-		return fmt.Errorf("unknown entity %q", p.Entity)
-	}
-	return d.ha.CallService(ctx, "climate", "set_hvac_mode", map[string]any{
-		"entity_id": entityID,
-		"hvac_mode": p.Mode,
 	})
 }
 
