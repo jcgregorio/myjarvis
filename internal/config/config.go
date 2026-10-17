@@ -75,7 +75,7 @@ func (c *Config) Flagset() *flag.FlagSet {
 	fs := flag.NewFlagSet("myjarvis", flag.ExitOnError)
 	fs.StringVar(&c.HAURL, "ha-url", env("HA_URL", ":8000"), "URL of HomeAssistant API")
 	fs.StringVar(&c.HAToken, "ha-token", env("HA_TOKEN", ""), "Home Assistant Authorization token used for HA API.")
-	fs.StringVar(&c.OllamaURL, "ollama-url", env("OLLAMA_URL", "http://goldmine-prime:11434/v1"), "Ollama URL")
+	fs.StringVar(&c.OllamaURL, "ollama-url", env("OLLAMA_URL", "http://goldmine-prime.localdomain:11434/v1"), "Ollama URL")
 	fs.StringVar(&c.Model, "model", env("MODEL", "granite4:latest"), "The name of the model to use")
 	fs.StringVar(&c.MQTTBroker, "mqtt-broker", env("MQTT_BROKER", "mqtt://localhost:1883"), "URL of MQTT broker")
 	fs.StringVar(&c.WhisperURL, "whisper-url", env("WHISPER_URL", "http://localhost:8000"), "URL of whisper server")
@@ -115,7 +115,7 @@ func FromEnv() Config {
 		log.Fatal("HA_TOKEN environment variable is required (long-lived access token from HA profile)")
 	}
 	if cfg.OllamaURL == "" {
-		cfg.OllamaURL = "http://goldmine-prime:11434/v1"
+		cfg.OllamaURL = "http://goldmine-prime.localdomain:11434/v1"
 	}
 	if cfg.Model == "" {
 		cfg.Model = "qwen2.5:7b"
