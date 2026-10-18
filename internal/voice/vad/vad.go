@@ -51,7 +51,7 @@ func NewProcessor(modelPath string) (*Processor, error) {
 		ModelPath:            modelPath,
 		SampleRate:           16000,
 		Threshold:            0.5,
-		MinSilenceDurationMs: 1500,
+		MinSilenceDurationMs: 2000,
 		SpeechPadMs:          100,
 		LogLevel:             speech.LogLevelWarn,
 	})
