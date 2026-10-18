@@ -1,4 +1,4 @@
-MODEL     ?= granite4:latest
+MODEL     ?= gemma4:e2b
 HA_URL    ?= http://homeassistant.local:8123
 HA_TOKEN  ?= $(error HA_TOKEN is required — export HA_TOKEN=<your-long-lived-access-token>)
 OLLAMA_URL ?= http://goldmine-prime:11434/v1

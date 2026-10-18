@@ -22,7 +22,7 @@ services:
     environment:
       - OLLAMA_URL=http://goldmine-prime.localdomain:11434/v1
       - WHISPER_URL=http://localhost:8000
-      - MODEL=granite4:latest
+      - MODEL=gemma4:e2b
       - MQTT_BROKER=mqtt://localhost:1883
       - PIPER_ADDR=localhost:10200
       - AUDIO_PORT=8085
