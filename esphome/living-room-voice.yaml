@@ -5,4 +5,4 @@ substitutions:
   mqtt_broker: "joelegion.local"
 
 packages:
-  base: !include voice-pe-base.yaml
+  base: !include voice-pe-base-esp32s3box.yaml
