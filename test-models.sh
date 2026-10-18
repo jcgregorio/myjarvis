@@ -18,6 +18,7 @@ SUMMARY_CSV="$RESULTS_DIR/summary.csv"
 declare -a MODELS=(
   "gemma3:4b"
   "gemma3:12b"
+  "gemma4:e2b"
   "gemma4:latest"
   "gemma4:16k"
   "gemma4:32k"
