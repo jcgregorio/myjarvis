@@ -50,15 +50,24 @@ is_qwen3() {
 mkdir -p "$RESULTS_DIR"
 > "$SUMMARY_CSV"
 
-# Stop the currently loaded model to free VRAM before loading the next.
+# Stop myjarvis so granite4 doesn't stay resident in goldmine-prime VRAM
+# and skew latency results for other models. Restarted in the EXIT trap.
+echo ">>> Stopping myjarvis container for clean VRAM..."
+docker stop myjarvis 2>/dev/null || true
+trap 'echo ">>> Restarting myjarvis..."; docker start myjarvis' EXIT
+
+# Unload every model currently resident in Ollama VRAM before loading the next.
 stop_loaded_model() {
   local running
   running=$(ssh "$REMOTE" "ollama ps 2>/dev/null | tail -n +2 | awk '{print \$1}'" 2>/dev/null || true)
-  if [[ -n "$running" ]]; then
+  while [[ -n "$running" ]]; do
+    local first
+    first=$(echo "$running" | head -1)
     curl -s "http://$REMOTE:11434/api/generate" \
-      -d "{\"model\": \"$running\", \"keep_alive\": 0}" > /dev/null 2>&1
+      -d "{\"model\": \"$first\", \"keep_alive\": 0}" > /dev/null 2>&1
     sleep 2
-  fi
+    running=$(ssh "$REMOTE" "ollama ps 2>/dev/null | tail -n +2 | awk '{print \$1}'" 2>/dev/null || true)
+  done
 }
 
 run_test() {

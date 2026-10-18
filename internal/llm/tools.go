@@ -18,7 +18,7 @@ func BuildTools(entities []ha.Entity) []openai.ChatCompletionToolParam {
 	for _, e := range entities {
 		name := strings.ToLower(e.FriendlyName())
 		domain, _, _ := strings.Cut(e.EntityID, ".")
-		if domain == "automation" {
+		if domain == "automation" || domain == "script" {
 			automationNames = append(automationNames, name)
 		} else if domain == "climate" {
 			climateNames = append(climateNames, name)

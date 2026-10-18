@@ -60,9 +60,6 @@ var routeCases = []routeCase{
 	{"home/trigger_automation", "Run the goodnight routine", "trigger_automation"},
 	{"home/trigger_automation", "Activate movie time", "trigger_automation"},
 
-	// --- Home automation: timers ---
-	{"home/set_timer", "Set a timer for 10 minutes", "set_timer"},
-	{"home/set_timer", "Start a 5 minute pasta timer", "set_timer"},
 }
 
 type routeResult struct {

@@ -103,6 +103,7 @@ services:
     volumes:
       - /home/jcgregorio/homeassistant/config:/config
       - /run/dbus:/run/dbus:ro
+      - /home/jcgregorio/homeassistant/resolv.conf:/etc/resolv.conf:ro
     restart: unless-stopped
 
   matter-server:
