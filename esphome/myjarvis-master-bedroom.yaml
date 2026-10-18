@@ -1,7 +1,7 @@
 # Development board — ESP32-S3-BOX-3B attached via USB
 substitutions:
-  device_name: development-voice
-  friendly_name: "Development Voice"
+  device_name: myjarvis-master-bedroom
+  friendly_name: "Jarvis Master Bedroom"
   mqtt_broker: "joelegion.local"
 
 packages:

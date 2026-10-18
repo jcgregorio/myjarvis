@@ -1,7 +1,7 @@
 # Kitchen Voice PE — uses shared base config
 substitutions:
-  device_name: kitchen-voice
-  friendly_name: "Kitchen Voice"
+  device_name: myjarvis-kitchen
+  friendly_name: "Jarvis Kitchen"
   mqtt_broker: "joelegion.local"
 
 packages:

@@ -103,10 +103,9 @@ func mainAction(cfg *config.Config) {
 		RefreshInterval: 5 * time.Minute,
 		DebugAudioDir:   cfg.DebugAudioDir,
 		DeviceFormats: map[string]stt.PCMFormat{
-			"development-voice": stt.PCM16BitStereo,
-			"kitchen-voice":     stt.PCM16BitStereo,
-			"living-room-voice": stt.PCM16BitStereo,
-			"master-bedroom":    stt.PCM16BitStereo,
+			"myjarvis-kitchen":        stt.PCM16BitStereo,
+			"myjarvis-master-bedroom": stt.PCM16BitStereo,
+			"myjarvis-office":         stt.PCM16BitStereo,
 		},
 	})
 
