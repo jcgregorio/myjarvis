@@ -104,6 +104,7 @@ func mainAction(cfg *config.Config) {
 		DebugAudioDir:   cfg.DebugAudioDir,
 		DeviceFormats: map[string]stt.PCMFormat{
 			"development-voice": stt.PCM16BitStereo,
+			"kitchen-voice":     stt.PCM16BitStereo,
 			"living-room-voice": stt.PCM16BitStereo,
 			"master-bedroom":    stt.PCM16BitStereo,
 		},
