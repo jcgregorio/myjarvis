@@ -78,13 +78,10 @@ func mainAction(cfg *config.Config) {
 		log.Fatalf("Failed to start audio server: %v", err)
 	}
 
-	vadProc, err := vad.NewProcessor(cfg.VADModelPath)
-	if err != nil {
-		log.Fatalf("Failed to initialize VAD: %v", err)
-	}
-	defer vadProc.Destroy()
-
-	router := audio.NewRouter(vadProc)
+	router := audio.NewRouter(func() (*vad.Processor, error) {
+		return vad.NewProcessor(cfg.VADModelPath)
+	})
+	defer router.Destroy()
 	voiceMQTT, err := mqtt.NewClient(context.Background(), cfg.MQTTBroker, router)
 	if err != nil {
 		log.Printf("MQTT connection failed (voice input disabled): %v", err)

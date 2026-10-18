@@ -46,24 +46,41 @@ func (s *Session) Snapshot() []byte {
 // OnPause is called when VAD detects a short pause in speech, delivering a snapshot
 // of audio so far for speculative processing.
 //
+// Each device gets its own VAD processor (created lazily, reused across sessions)
+// so simultaneous utterances from different devices do not interfere.
+//
 // DeviceToMono maps device names to a PCM→mono-float32 converter. Devices not
 // listed use the default 32-bit stereo path (vad.Append). Set this before
 // calling AppendAudio to support devices with non-standard audio formats.
 type Router struct {
 	mu           sync.Mutex
-	sessions     map[string]*Session // device name → active session
-	vad          *vad.Processor
+	sessions     map[string]*Session        // device name → active session
+	vadProcs     map[string]*vad.Processor  // per-device VAD processors
+	newVAD       func() (*vad.Processor, error)
 	DeviceToMono map[string]func([]byte) []float32
 	OnComplete   func(device string, audio []byte)
 	OnSpeechEnd  func(device string)
 	OnPause      func(device string, audio []byte)
 }
 
-func NewRouter(vad *vad.Processor) *Router {
+// NewRouter creates a Router. newVAD is called once per device to create its
+// dedicated VAD processor; it is typically vad.NewProcessor(modelPath).
+func NewRouter(newVAD func() (*vad.Processor, error)) *Router {
 	return &Router{
 		sessions: make(map[string]*Session),
-		vad:      vad,
+		vadProcs: make(map[string]*vad.Processor),
+		newVAD:   newVAD,
 	}
+}
+
+// Destroy releases all per-device VAD processors. Call when shutting down.
+func (r *Router) Destroy() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, proc := range r.vadProcs {
+		proc.Destroy()
+	}
+	r.vadProcs = make(map[string]*vad.Processor)
 }
 
 // StartSession begins buffering audio for a device.
@@ -77,8 +94,20 @@ func (r *Router) StartSession(device string) {
 		Device:    device,
 		StartedAt: time.Now(),
 	}
-	if r.vad != nil {
-		r.vad.Reset()
+	// Reset (or lazily create) this device's dedicated VAD processor.
+	if r.newVAD != nil {
+		proc := r.vadProcs[device]
+		if proc == nil {
+			var err error
+			proc, err = r.newVAD()
+			if err != nil {
+				log.Printf("[audio] %s: failed to create VAD: %v", device, err)
+			} else {
+				r.vadProcs[device] = proc
+			}
+		} else {
+			proc.Reset()
+		}
 	}
 	log.Printf("[audio] %s: session started", device)
 }
@@ -95,13 +124,16 @@ func (r *Router) AppendAudio(device string, data []byte) {
 	}
 	s.Append(data)
 
-	// Run VAD on the chunk, using a device-specific converter if registered.
-	if r.vad != nil {
+	// Run VAD on the chunk using this device's dedicated processor.
+	r.mu.Lock()
+	proc := r.vadProcs[device]
+	r.mu.Unlock()
+	if proc != nil {
 		var vadResult vad.Result
 		if fn, ok := r.DeviceToMono[device]; ok {
-			vadResult = r.vad.AppendMono(fn(data))
+			vadResult = proc.AppendMono(fn(data))
 		} else {
-			vadResult = r.vad.Append(data)
+			vadResult = proc.Append(data)
 		}
 		switch vadResult {
 		case vad.Pause:
