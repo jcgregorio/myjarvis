@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -42,10 +41,9 @@ func main() {
 	}
 
 	cfg := &config.Config{}
-	if err := cfg.Flagset().Parse(os.Args); err != nil {
+	if err := cfg.Flagset().Parse(os.Args[1:]); err != nil {
 		log.Fatalf("Failed parse flags: %s", err)
 	}
-	flag.Parse()
 
 	switch action {
 	case "list":
