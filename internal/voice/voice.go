@@ -175,10 +175,12 @@ func (r *Runner) processVoice(ctx context.Context, device string, audioBytes []b
 		return &voiceResult{}
 	}
 
+	llmStart := time.Now()
 	toolCalls, reply, err := r.deps.LLM.Chat(ctx, transcript, r.Tools())
 	if err != nil {
 		return &voiceResult{transcript: transcript, err: fmt.Errorf("LLM error: %w", err)}
 	}
+	log.Printf("[voice/llm] %s: %dms", device, time.Since(llmStart).Milliseconds())
 	return &voiceResult{transcript: transcript, toolCalls: toolCalls, reply: reply}
 }
 
@@ -213,16 +215,17 @@ func (r *Runner) executeResult(device string, vr *voiceResult) {
 	hadError := false
 	for _, tc := range vr.toolCalls {
 		log.Printf("[voice] %s: → %s(%s)", device, tc.Name, tc.Args)
+		tcStart := time.Now()
 		result, err := r.deps.Dispatcher.Execute(context.Background(), tc)
 		if err != nil {
-			log.Printf("[voice] %s:   error: %v", device, err)
+			log.Printf("[voice] %s:   error: %v (%dms)", device, err, time.Since(tcStart).Milliseconds())
 			hadError = true
 		} else if result != "" {
-			log.Printf("[voice] %s:   result: %s", device, result)
+			log.Printf("[voice] %s:   result: %s (%dms)", device, result, time.Since(tcStart).Milliseconds())
 			r.speak(device, result)
 			r.deps.MQTT.PublishText(device, result)
 		} else {
-			log.Printf("[voice] %s:   done", device)
+			log.Printf("[voice] %s:   done (%dms)", device, time.Since(tcStart).Milliseconds())
 		}
 	}
 	if hadError {
@@ -280,8 +283,10 @@ func (r *Runner) handleComplete(device string, audioBytes []byte) {
 
 	log.Printf("[voice] %s: received %d bytes of audio, transcribing...", device, len(audioBytes))
 	r.deps.MQTT.PublishLED(device, "thinking")
+	e2eStart := time.Now()
 	vr := r.processVoice(context.Background(), device, audioBytes, false)
 	r.executeResult(device, vr)
+	log.Printf("[voice/e2e] %s: %dms", device, time.Since(e2eStart).Milliseconds())
 }
 
 func (r *Runner) refreshLoop(ctx context.Context) {
