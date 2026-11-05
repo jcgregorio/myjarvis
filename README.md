@@ -1,76 +1,98 @@
 # myjarvis
 
-A Go CLI that connects a local LLM (via Ollama) to Home Assistant. Type a natural language command and it executes the corresponding HA action.
+Go-based voice assistant pipeline for Home Assistant. ESP32-S3-BOX-3B devices capture wake word + audio via MQTT, the server runs VAD + STT + LLM tool calling, then executes HA actions via REST API. Also supports interactive CLI mode for typed input.
 
-## Prerequisites
+## Architecture
 
-- [Ollama](https://ollama.com) running locally (or in Docker — see notes below)
-- A Home Assistant instance with a long-lived access token
-- A tool-calling capable model pulled in Ollama (e.g. `qwen2.5:7b`)
-
-```bash
-ollama pull qwen2.5:7b
+```
+ESP32-S3-BOX-3B (hey_jarvis mWW) --MQTT--> AudioRouter --VAD--> STT --> LLM --> HA REST API
+                                                                             --> Obsidian Lists (git)
+                                                                             --> RAG sidecar (goldmine-prime)
 ```
 
-## Configuration
+All services run on the same machine via Docker Compose:
 
-Set environment variables before running:
+| Service | Image | Role |
+|---|---|---|
+| `myjarvis` | local build | Voice pipeline, LLM orchestration, HA dispatch |
+| `ollama` | `ollama/ollama:latest` | LLM serving (gemma4:e2b on RTX 3060 Ti) |
+| `jarvis-whisper` | `faster-whisper-server` | Speech-to-text (CUDA) |
+| `jarvis-piper` | `wyoming-piper` | Text-to-speech |
+| `mosquitto` | `eclipse-mosquitto:2` | MQTT broker |
+| `homeassistant` | `home-assistant` | Home automation hub |
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `HA_URL` | Yes | — | Home Assistant base URL, e.g. `http://homeassistant.local:8123` |
-| `HA_TOKEN` | Yes | — | Long-lived access token (HA Profile → Security → Long-Lived Access Tokens) |
-| `OLLAMA_URL` | No | `http://localhost:11434/v1` | Ollama OpenAI-compatible endpoint |
-| `MODEL` | No | `qwen2.5:7b` | Ollama model name |
+## Voice Devices
+
+Three ESP32-S3-BOX-3B devices, all running identical firmware from `esphome/voice-pe-base-esp32s3box.yaml`:
+
+| Device name | Location |
+|---|---|
+| `myjarvis-kitchen` | Kitchen |
+| `myjarvis-master-bedroom` | Master Bedroom |
+| `myjarvis-office` | Office |
 
 ## Build & Run
 
-```bash
-go build -o jarvis .
-HA_URL=http://homeassistant.local:8123 HA_TOKEN=your_token_here ./jarvis
-```
-
-Or run directly:
+Requires CGO enabled (onnxruntime for Silero VAD):
 
 ```bash
-HA_URL=http://homeassistant.local:8123 HA_TOKEN=your_token_here go run .
+make build    # builds ./myjarvis binary
+make install  # builds and installs to $GOPATH/bin
 ```
 
-## Usage
-
-```
-Fetching Home Assistant entities...
-Found 42 controllable entities.
-
-Jarvis ready (model: qwen2.5:7b). Type a command (Ctrl+D to quit):
-> turn off the kitchen lights
-→ set_state({"entity_id":"light.kitchen","state":"off"})
-  done.
-> set a 10 minute timer for pasta
-→ set_timer({"name":"pasta","duration_seconds":600})
-  done.
-> add milk to the shopping list
-→ add_shopping_item({"item":"milk"})
-  done.
+```bash
+make run      # full voice pipeline (MQTT + CLI)
+make dry-run  # CLI only, no HA execution
+make list     # list controllable HA entities
+make tools    # show generated tool schemas
 ```
 
-## Supported Tools
+## Environment Variables
 
-| Tool | What it does | HA service called |
+| Variable | Default | Purpose |
 |---|---|---|
-| `set_state` | Turn any controllable entity on or off | `<domain>.turn_on` / `turn_off` |
-| `set_timer` | Start a countdown timer | `timer.start` |
-| `add_shopping_item` | Add to the HA shopping list | `shopping_list.add_item` |
-| `add_todo` | Add a task to a to-do list | `todo.add_item` |
+| `HA_URL` | `http://homeassistant.local:8123` | Home Assistant base URL |
+| `HA_TOKEN` | — | Long-lived access token for HA REST API |
+| `MQTT_BROKER` | `mqtt://localhost:1883` | MQTT broker URL |
+| `OLLAMA_URL` | `http://localhost:11434/v1` | OpenAI-compatible LLM endpoint |
+| `MODEL` | `gemma4:e2b` | Ollama model name |
+| `WHISPER_URL` | `http://localhost:8000` | faster-whisper server URL |
+| `LISTS_DIR` | — | Obsidian vault lists directory |
+| `RAG_URL` | — | Hybrid-search sidecar on goldmine-prime |
 
-Controllable entity domains: `light`, `switch`, `input_boolean`, `fan`, `cover`, `media_player`, `climate`, `script`, `automation`.
+## Deploy
 
-## Ollama in Docker
+```bash
+make deploy   # docker compose build + up (picks up code changes)
+make restart  # restart without rebuilding (no code changes)
+make logs     # follow myjarvis container logs
+```
 
-If Ollama is running via the project's docker-compose, it will be at `http://localhost:11434` by default. See the Obsidian notes for the full docker-compose setup.
+## ESPHome Firmware
 
-## Next Steps
+```bash
+make build-kitchen        # → /tmp/myjarvis-kitchen-factory.bin
+make build-master-bedroom # → /tmp/myjarvis-master-bedroom-factory.bin
+make build-office         # → /tmp/myjarvis-office-factory.bin
+```
 
-- Wire in the voice pipeline (Wyoming protocol / ESPHome native API)
-- Add scene support (`scene.turn_on`)
-- Add entity aliases so the LLM sees friendly names alongside entity IDs
+Factory flash new devices via [web.esphome.io](https://web.esphome.io/) in Chrome. After first flash, OTA works:
+
+```bash
+make ota           # OTA all three devices
+make ota-kitchen   # OTA individual device
+```
+
+## Code Structure
+
+- **`cmd/myjarvis/main.go`** — Entry point. Subcommands: `list`, `tools`. Flag: `--dry-run`.
+- **`internal/voice/audio/audio.go`** — Per-device audio session management and VAD routing.
+- **`internal/voice/vad/vad.go`** — Silero VAD v5 via ONNX. Dual-detector (500ms pause, 2000ms done).
+- **`internal/voice/stt/stt.go`** — Sends audio to faster-whisper. Handles 16-bit and 32-bit stereo PCM.
+- **`internal/voice/mqtt/mqtt.go`** — MQTT v5 client (autopaho). Subscribes to device audio topics.
+- **`internal/llm/llm.go`** — OpenAI-compatible client pointed at local Ollama.
+- **`internal/llm/tools.go`** — Dynamically builds OpenAI tool schemas from HA entities.
+- **`internal/ha/ha.go`** — HA REST API client. Fetches and dispatches to controllable entities.
+- **`internal/agent/agent.go`** — Tool call dispatcher.
+- **`internal/lists/lists.go`** — Appends items to Obsidian markdown checklists with git sync.
+- **`internal/rag/rag.go`** — HTTP client for goldmine-prime search sidecar (Qdrant hybrid search).

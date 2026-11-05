@@ -1,66 +1,81 @@
 # ESPHome Firmware
 
-Custom firmware for the Seeed Studio / HA Voice Preview Edition, replacing the stock
-HA voice pipeline with a standalone MQTT-based pipeline driven by myjarvis.
+Custom firmware for three ESP32-S3-BOX-3B voice devices. Replaces the stock HA voice
+pipeline with a standalone MQTT-based pipeline driven by myjarvis.
 
-## Files
+## Devices
 
-- `kitchen-voice.yaml` — firmware for the kitchen device (template for additional devices)
-- `secrets.yaml` — symlink to `secret/secrets.yaml` (wifi credentials, not in this repo)
-- `secret/` — git submodule: [jcgregorio/myjarvis-secret](https://github.com/jcgregorio/myjarvis-secret)
+All three devices run identical firmware from `voice-pe-base-esp32s3box.yaml`:
 
-## What this firmware does differently from stock
+| Config file | Device name | Location |
+|---|---|---|
+| `myjarvis-kitchen.yaml` | `myjarvis-kitchen` | Kitchen |
+| `myjarvis-master-bedroom.yaml` | `myjarvis-master-bedroom` | Master Bedroom |
+| `myjarvis-office.yaml` | `myjarvis-office` | Office |
 
-- Replaces `voice_assistant` (HA WebSocket pipeline) with direct MQTT streaming
+## Hardware: ESP32-S3-BOX-3B
+
+- ES7210 4-mic array (I2S, 16-bit stereo, 16kHz) — audio input
+- ES8311 codec (I2S, 16-bit, 48kHz) — audio output / TTS playback
+- ILI9342C 320×240 display — shows Listening / Thinking / Error / idle states
+- GT911 touchscreen
+- 16MB flash, 16MB octal PSRAM
+
+Audio format sent to myjarvis: **16-bit stereo PCM, 16kHz** (64KB/s).
+
+## What this firmware does
+
 - `hey_jarvis` wake word runs on-chip via TFLite Micro — nothing leaves the device until detected
-- On wake: stops mWW, starts mic, streams 32-bit PCM chunks to `jarvis/<device>/audio`
+- On wake: disables mWW model, flushes 1.5s pre-buffer, streams 16-bit PCM chunks to `jarvis/<device>/audio`
+- Server sends `stop_streaming` when VAD detects end of speech; device re-enables mWW
+- TTS playback: myjarvis sends HTTP URL to `jarvis/<device>/tts_url` → media_player fetches and plays
+- Display shows Listening (blue) / Thinking (amber) / Error (red) / idle (off) states
 - Center button also triggers push-to-talk
-- TTS playback: myjarvis sends an HTTP URL to `jarvis/<device>/tts_url` → media_player fetches and plays it
-- LED ring shows listening (blue) / thinking (amber sweep) / replying (green) states
-- Hardware mute switch and software mute both work
-- Volume dial controls playback volume
 
 ## MQTT topic schema
 
 | Topic | Direction | Content |
 |---|---|---|
-| `jarvis/<device>/audio_start` | device → myjarvis | Begin audio stream |
-| `jarvis/<device>/audio` | device → myjarvis | Raw 32-bit PCM chunks, 16kHz stereo |
-| `jarvis/<device>/audio_stop` | device → myjarvis | End of utterance |
-| `jarvis/<device>/tts_url` | myjarvis → device | HTTP URL of TTS audio file to play |
-| `jarvis/<device>/led` | myjarvis → device | LED state: `listening`, `thinking`, `off` |
-| `jarvis/<device>/muted` | device → myjarvis | `true` / `false` |
-| `jarvis/<device>/status` | device → myjarvis | `online` / `offline` (birth/will) |
-
-## Audio format note
-
-The audio arriving at myjarvis is **32-bit PCM, 16kHz, stereo**. myjarvis must convert
-this to 16-bit mono before sending to faster-whisper. This conversion is the next piece
-of work on the Go side.
+| `jarvis/<device>/audio_start` | device → server | Begin audio stream |
+| `jarvis/<device>/audio` | device → server | Raw 16-bit stereo PCM chunks, 16kHz |
+| `jarvis/<device>/audio_stop` | device → server | End of utterance (30s safety timeout) |
+| `jarvis/<device>/wake_detected` | device → server | Wake word fired |
+| `jarvis/<device>/stop_streaming` | server → device | Stop audio stream, re-enable mWW |
+| `jarvis/<device>/tts_url` | server → device | HTTP URL of TTS audio to play |
+| `jarvis/<device>/led` | server → device | Display state: `listening`, `thinking`, `error`, `off` |
+| `jarvis/<device>/text` | server → device | Text to show on display |
+| `jarvis/<device>/status` | device → server | `online` / `offline` (birth/will, retained) |
 
 ## Flashing
 
+New devices must be factory-flashed via USB (OTA requires existing firmware):
+
 ```bash
-# Install toolchain (one-time)
-python3 -m venv ~/.venv/esphome
-source ~/.venv/esphome/bin/activate
-pip install esphome esptool
-
-# Add user to dialout group for USB access (re-login after)
-sudo usermod -aG dialout $USER
-
-# Fill in real credentials (already set for this machine)
-$EDITOR secret/secrets.yaml
-
-# Compile and flash over USB
-esphome run kitchen-voice.yaml
+# Build factory binary
+make build-kitchen        # → /tmp/myjarvis-kitchen-factory.bin
+make build-master-bedroom # → /tmp/myjarvis-master-bedroom-factory.bin
+make build-office         # → /tmp/myjarvis-office-factory.bin
 ```
 
-To add another device, copy `kitchen-voice.yaml` and update the `device_name` and
-`friendly_name` substitutions at the top.
+Go to [web.esphome.io](https://web.esphome.io/) in Chrome, plug in via USB, select the binary.
+
+After the first factory flash, future updates work over WiFi:
+
+```bash
+make ota                  # update all three devices
+make ota-kitchen          # update one device
+```
+
+## Wake word model
+
+`hey_jarvis.json` is a local manifest pointing to `hey_jarvis.tflite`. The manifest patches
+`tensor_arena_size` to work around an upstream bug. The `.tflite` file is a symlink into the
+ESPHome cache directory.
 
 ## Cloning on a new machine
 
 ```bash
 git clone --recurse-submodules https://github.com/jcgregorio/myjarvis.git
 ```
+
+WiFi credentials live in the `esphome/secret/` git submodule (private repo).
