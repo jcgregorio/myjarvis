@@ -1,0 +1,34 @@
+CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" \
+OLLAMA_URL=http://goldmine-prime:11434/v1 MODEL=phi4:latest LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
+go test -tags integration -run TestRouting -v -timeout 30m ./tests/integration
+=== RUN   TestRouting
+    routing_test.go:106: routing test: model=phi4:latest endpoint=http://goldmine-prime:11434/v1 cases=8 no_think=false
+=== RUN   TestRouting/home/set_state/Turn_on_the_kitchen_light
+    routing_test.go:119: Chat error after 114ms: POST "http://goldmine-prime:11434/v1/chat/completions": 400 Bad Request {"message":"registry.ollama.ai/library/phi4:latest does not support tools","type":"invalid_request_error","param":null,"code":null}
+=== RUN   TestRouting/home/set_state/Turn_off_the_living_room_light
+    routing_test.go:119: Chat error after 101ms: POST "http://goldmine-prime:11434/v1/chat/completions": 400 Bad Request {"message":"registry.ollama.ai/library/phi4:latest does not support tools","type":"invalid_request_error","param":null,"code":null}
+=== RUN   TestRouting/home/set_state/Switch_off_the_fan
+    routing_test.go:119: Chat error after 150ms: POST "http://goldmine-prime:11434/v1/chat/completions": 400 Bad Request {"message":"registry.ollama.ai/library/phi4:latest does not support tools","type":"invalid_request_error","param":null,"code":null}
+=== RUN   TestRouting/home/set_state/Bedroom_light_on_please
+    routing_test.go:119: Chat error after 82ms: POST "http://goldmine-prime:11434/v1/chat/completions": 400 Bad Request {"message":"registry.ollama.ai/library/phi4:latest does not support tools","type":"invalid_request_error","param":null,"code":null}
+=== RUN   TestRouting/home/set_state/Can_you_turn_the_coffee_maker_on
+    routing_test.go:119: Chat error after 103ms: POST "http://goldmine-prime:11434/v1/chat/completions": 400 Bad Request {"message":"registry.ollama.ai/library/phi4:latest does not support tools","type":"invalid_request_error","param":null,"code":null}
+=== RUN   TestRouting/home/set_state/Shut_off_the_office_fan
+    routing_test.go:119: Chat error after 109ms: POST "http://goldmine-prime:11434/v1/chat/completions": 400 Bad Request {"message":"registry.ollama.ai/library/phi4:latest does not support tools","type":"invalid_request_error","param":null,"code":null}
+=== RUN   TestRouting/home/trigger_automation/Run_the_goodnight_routine
+    routing_test.go:119: Chat error after 82ms: POST "http://goldmine-prime:11434/v1/chat/completions": 400 Bad Request {"message":"registry.ollama.ai/library/phi4:latest does not support tools","type":"invalid_request_error","param":null,"code":null}
+=== RUN   TestRouting/home/trigger_automation/Activate_movie_time
+    routing_test.go:119: Chat error after 91ms: POST "http://goldmine-prime:11434/v1/chat/completions": 400 Bad Request {"message":"registry.ollama.ai/library/phi4:latest does not support tools","type":"invalid_request_error","param":null,"code":null}
+--- FAIL: TestRouting (0.94s)
+    --- FAIL: TestRouting/home/set_state/Turn_on_the_kitchen_light (0.11s)
+    --- FAIL: TestRouting/home/set_state/Turn_off_the_living_room_light (0.10s)
+    --- FAIL: TestRouting/home/set_state/Switch_off_the_fan (0.15s)
+    --- FAIL: TestRouting/home/set_state/Bedroom_light_on_please (0.08s)
+    --- FAIL: TestRouting/home/set_state/Can_you_turn_the_coffee_maker_on (0.10s)
+    --- FAIL: TestRouting/home/set_state/Shut_off_the_office_fan (0.11s)
+    --- FAIL: TestRouting/home/trigger_automation/Run_the_goodnight_routine (0.08s)
+    --- FAIL: TestRouting/home/trigger_automation/Activate_movie_time (0.09s)
+FAIL
+FAIL	github.com/jcgregorio/myjarvis/tests/integration	0.940s
+FAIL
+make: *** [Makefile:69: test-routing] Error 1

@@ -1,0 +1,53 @@
+CGO_ENABLED=1 CGO_CFLAGS="-I/usr/include/onnxruntime" CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lonnxruntime" \
+OLLAMA_URL=http://goldmine-prime:11434/v1 MODEL=phi4-mini:latest LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
+go test -tags integration -run TestRouting -v -timeout 30m ./tests/integration
+=== RUN   TestRouting
+    routing_test.go:106: routing test: model=phi4-mini:latest endpoint=http://goldmine-prime:11434/v1 cases=8 no_think=false
+=== RUN   TestRouting/home/set_state/Turn_on_the_kitchen_light
+    routing_test.go:131: routed to NO tool (plain reply: "To turn on the kitchen light, I will call the set_state function with the entity…") in 1.163s; want set_state
+=== RUN   TestRouting/home/set_state/Turn_off_the_living_room_light
+    routing_test.go:131: routed to NO tool (plain reply: "To execute your request, I will call the appropriate tool function:\n\n```\n{\n  \"ty…") in 1.225s; want set_state
+=== RUN   TestRouting/home/set_state/Switch_off_the_fan
+    routing_test.go:131: routed to NO tool (plain reply: "To execute your command, I will call the `set_state` function with parameters se…") in 1.086s; want set_state
+=== RUN   TestRouting/home/set_state/Bedroom_light_on_please
+    routing_test.go:131: routed to NO tool (plain reply: "To execute your command, I will use a function that turns an entity's state (in …") in 1.085s; want set_state
+=== RUN   TestRouting/home/set_state/Can_you_turn_the_coffee_maker_on
+    routing_test.go:131: routed to NO tool (plain reply: "Sure, I will set your coffee machine to \"on\".\n\n```json\n{\n  \"type\": \"function\",\n …") in 1.544s; want set_state
+=== RUN   TestRouting/home/set_state/Shut_off_the_office_fan
+    routing_test.go:131: routed to NO tool (plain reply: "To shut off your Office Fan, I will use a Home Assistant tool called `set_state`…") in 1.517s; want set_state
+=== RUN   TestRouting/home/trigger_automation/Run_the_goodnight_routine
+    routing_test.go:131: routed to NO tool (plain reply: "Sure, I will initiate the `trigger_automation` function for you:\n\n```json\n{\n  \"n…") in 1.056s; want trigger_automation
+=== RUN   TestRouting/home/trigger_automation/Activate_movie_time
+    routing_test.go:131: routed to NO tool (plain reply: "I'm going to start triggering your \"movie night\" smart home setup.\n\n```json\n{\n  …") in 1.911s; want trigger_automation
+=== NAME  TestRouting
+    routing_test.go:188: 
+    routing_test.go:189: ==================== ROUTING SUMMARY ====================
+    routing_test.go:190: category                     pass        latency (routing call only)
+    routing_test.go:192: home/set_state                0/6  (  0%)  min=1.09s  p50=1.16s  p95=1.54s  max=1.54s  mean=1.27s 
+    routing_test.go:192: home/trigger_automation       0/2  (  0%)  min=1.06s  p50=1.06s  p95=1.91s  max=1.91s  mean=1.48s 
+    routing_test.go:194: ---------------------------------------------------------
+    routing_test.go:195: OVERALL                       0/8  (  0%)  min=1.06s  p50=1.16s  p95=1.91s  max=1.91s  mean=1.32s 
+    routing_test.go:196: =========================================================
+    routing_test.go:205: ROUTING_CSV:phi4-mini:latest,0,0,8,0,1055,1162,1910,1910,1323
+    routing_test.go:218: 8 misroute(s):
+    routing_test.go:220:   [home/set_state] "Turn on the kitchen light" -> got (none), want set_state (1.16s)
+    routing_test.go:220:   [home/set_state] "Turn off the living room light" -> got (none), want set_state (1.23s)
+    routing_test.go:220:   [home/set_state] "Switch off the fan" -> got (none), want set_state (1.09s)
+    routing_test.go:220:   [home/set_state] "Bedroom light on please" -> got (none), want set_state (1.09s)
+    routing_test.go:220:   [home/set_state] "Can you turn the coffee maker on" -> got (none), want set_state (1.54s)
+    routing_test.go:220:   [home/set_state] "Shut off the office fan" -> got (none), want set_state (1.52s)
+    routing_test.go:220:   [home/trigger_automation] "Run the goodnight routine" -> got (none), want trigger_automation (1.06s)
+    routing_test.go:220:   [home/trigger_automation] "Activate movie time" -> got (none), want trigger_automation (1.91s)
+--- FAIL: TestRouting (15.28s)
+    --- FAIL: TestRouting/home/set_state/Turn_on_the_kitchen_light (1.16s)
+    --- FAIL: TestRouting/home/set_state/Turn_off_the_living_room_light (1.23s)
+    --- FAIL: TestRouting/home/set_state/Switch_off_the_fan (1.09s)
+    --- FAIL: TestRouting/home/set_state/Bedroom_light_on_please (1.09s)
+    --- FAIL: TestRouting/home/set_state/Can_you_turn_the_coffee_maker_on (1.54s)
+    --- FAIL: TestRouting/home/set_state/Shut_off_the_office_fan (1.52s)
+    --- FAIL: TestRouting/home/trigger_automation/Run_the_goodnight_routine (1.06s)
+    --- FAIL: TestRouting/home/trigger_automation/Activate_movie_time (1.91s)
+FAIL
+FAIL	github.com/jcgregorio/myjarvis/tests/integration	15.285s
+FAIL
+make: *** [Makefile:69: test-routing] Error 1

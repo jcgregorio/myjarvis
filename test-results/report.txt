@@ -1,0 +1,36 @@
+Model Routing Report
+
+MODEL                                THINK    PASS    TOTAL    ACC%      P50ms     MEANms  
+-----------------------------------  -------  ------  -------  --------  --------  --------
+gemma3:4b                            think    0       0        0%        0ms       0ms     
+gemma3:12b                           think    0       0        0%        0ms       0ms     
+gemma4:latest                        think    8       8        100%      1588ms    2040ms  
+gemma4:16k                           think    8       8        100%      792ms     1389ms  
+gemma4:32k                           think    8       8        100%      727ms     1372ms  
+granite3.3:8b                        think    1       8        12%       529ms     592ms   
+granite4:latest                      think    8       8        100%      463ms     469ms   
+llama3.1:8b                          think    8       8        100%      652ms     644ms   
+mistral:7b                           think    6       8        75%       413ms     462ms   
+nemotron-3-nano:4b                   think    8       8        100%      1187ms    1225ms  
+nemotron-mini:latest                 think    3       8        38%       615ms     613ms   
+phi4-mini:latest                     think    0       8        0%        1162ms    1323ms  
+phi4:latest                          think    0       0        0%        0ms       0ms     
+phi4-reasoning:latest                think    0       0        0%        0ms       0ms     
+qwen2.5-coder:7b                     think    0       8        0%        722ms     697ms   
+qwen2.5-coder:14b                    think    0       8        0%        1163ms    1094ms  
+qwen3:4b                             think    8       8        100%      2788ms    2772ms  
+qwen3:4b                             nothink  8       8        100%      3503ms    3599ms  
+qwen3:8b                             think    8       8        100%      2106ms    2277ms  
+qwen3:8b                             nothink  8       8        100%      2273ms    2315ms  
+qwen3:8b-128k                        think    8       8        100%      2187ms    2127ms  
+qwen3:8b-128k                        nothink  8       8        100%      2437ms    2607ms  
+qwen3:8b-q8_0                        think    8       8        100%      3598ms    4196ms  
+qwen3:8b-q8_0                        nothink  8       8        100%      3481ms    4377ms  
+qwen3:14b-64k                        think    8       8        100%      3692ms    3708ms  
+qwen3:14b-64k                        nothink  8       8        100%      3663ms    3793ms  
+qwen3:14b-q4_K_M                     think    8       8        100%      3310ms    3499ms  
+qwen3:14b-q4_K_M                     nothink  8       8        100%      3961ms    4256ms  
+qwen3.5:9b                           think    8       8        100%      2354ms    2507ms  
+qwen3.5:9b                           nothink  8       8        100%      2361ms    2563ms  
+qwen3.5:9b-64k                       think    8       8        100%      2153ms    2133ms  
+qwen3.5:9b-64k                       nothink  8       8        100%      2271ms    2316ms  
